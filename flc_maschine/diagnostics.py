@@ -13,8 +13,10 @@ Never call gc.get_objects() here: in FL Studio's embedded Python it fails with
 "SystemError: ... returned NULL without setting an exception", and walking every object may itself
 be unsafe. Use the cheap counters instead.
 
-Temporary: set ENABLED = False once the crashes are understood. Nothing here may break the
-script, so every file and FL call is wrapped in try/except.
+Off by default (ENABLED = False): run() then just calls the callback and nothing is written. It
+was built to investigate the FL Studio 2026 hangs described in known-issues.md; set ENABLED = True
+to use it again. Nothing here may break the script, so every file and FL call is wrapped in
+try/except.
 """
 
 try:
@@ -40,7 +42,7 @@ except ImportError:  # pragma: no cover
     def _thread_id():
         return 0
 
-ENABLED = True
+ENABLED = False  # set True to write flc_debug.log (see known-issues.md)
 
 # Memory counters (sys.getallocatedblocks, gc.get_count/get_stats) and logging of full garbage
 # collections. Off by default: three crash logs showed no leak and no garbage collections, and

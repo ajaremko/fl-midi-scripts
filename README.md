@@ -5,6 +5,8 @@ These scripts attempt to solve this by allowing each controller to focus on cont
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for how the scripts are built and organised, and [known-issues.md](known-issues.md) for problems we know about.
 
+**FL Studio version:** use **FL Studio 2025**. FL Studio 2026 has known issues with these scripts (a hang after recording, and a crash when the record-options dialog opens); see [known-issues.md](known-issues.md).
+
 ## Maschine MK2
 
 The maschine features 16 high-quality RGB drum pads, a large, tactile encoder knob and an array of buttons specifically for controlling the Maschine DAW. 
