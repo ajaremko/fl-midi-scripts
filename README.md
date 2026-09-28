@@ -3,6 +3,8 @@
 This repo contains 3 MIDI scripts for integrating the Akai Fire, Native Instruments Maschine MK2 and Novation FL Keys 2 with FL Studio in one cohesive control surface. Each controller's vendor supplied MIDI scripts try to pack as much functionality as possible into their hardware unit. This means that access to a specific functionality can require putting the controller into a particular state ("pad mode", "sequencer mode", etc), which can be cumbersome and requires keeping a mental model of distinct state spaces for each controller. 
 These scripts attempt to solve this by allowing each controller to focus on controlling specific parts of FL studio rather than packing every functionality into every controller. The notable exception where functionality is genuinely meant to be redundant across controllers is transport control.
 
+See [ARCHITECTURE.md](ARCHITECTURE.md) for how the scripts are built and organised, and [known-issues.md](known-issues.md) for problems we know about.
+
 ## Maschine MK2
 
 The maschine features 16 high-quality RGB drum pads, a large, tactile encoder knob and an array of buttons specifically for controlling the Maschine DAW. 
@@ -78,11 +80,11 @@ These are all of the controls present on the hardware with their location, label
 |--------|-------------|---------------|---------|-----------------------------------------|-----------------------------------------------------|
 | Top    | Control     | MIDI          | Button  |                                         |                                                     |
 | Top    | Step        | Instance      | Button  |                                         |                                                     |
-| Top    | Browse      |               | Button  | focus browser window                    | illuminated when browser window is focused          |
-| Top    | F1          |               | Button  | focus channels window                   | illuminated when channels window is focused         |
-| Top    | F2          |               | Button  | focus piano roll window                 | illuminated when piano roll window is focused       |
-| Top    | F3          |               | Button  | focus playlist window                   | illuminated when playlist window is focused         |
-| Top    | F4          |               | Button  | focus channels mixer window             | illuminated when channels window is focused         |
+| Top    | Browse      |               | Button  | focus browser window; press again to hide                    | illuminated when browser window is focused          |
+| Top    | F1          |               | Button  | focus channels window; press again to hide                   | illuminated when channels window is focused         |
+| Top    | F2          |               | Button  | focus piano roll window; press again to hide                 | illuminated when piano roll window is focused       |
+| Top    | F3          |               | Button  | focus playlist window; press again to hide                   | illuminated when playlist window is focused         |
+| Top    | F4          |               | Button  | focus mixer window; press again to hide                      | illuminated when mixer window is focused            |
 | Top    | F5          |               | Button  | toggle shift mode                       | illuminated when shift mode is active               |
 | Top    | F6          |               | Button  |                                         |                                                     |
 | Top    | F7          |               | Button  |                                         |                                                     |
@@ -122,7 +124,14 @@ These are all of the controls present on the hardware with their location, label
 | Master | Enter       |               | Button  | enter                                   | depends on focused screen                           |
 | Master | Note Repeat | Tap           | Button  |                                         |                                                     |
 | Master | Encoder     |               | Encoder | navigate up/down in current screen, press in to enter| depends on focused screen              |
-| Groups | A -> H      |               | Button  |                                         |                                                     |
+| Groups | A -> H      |               | Button  | select pad group: the pads play 16 notes from group × 16 (A 0–15, B 16–31 … H 112–127; middle C is Group D pad 13). While the selected channel is FPC: Group E plays bank A and Group F bank B, in FPC's pad colours; empty pads and the other groups are dark and silent; selecting an FPC jumps to Group E | lit in the selected channel's colour, brightest when selected; starts on Group D; only E and F lit while FPC is selected |
+| Transport | Restart     | Loop          | Button  | stop, jump to the start and play        |                                                     |
+| Transport | Left        | Step Left     | Button  | move the song position to the previous snap grid line | uses FL's main snap (toolbar); set the Playlist and Piano Roll snap to "Main" so the playhead lands on the same grid |
+| Transport | Right       | Step Right    | Button  | move the song position to the next snap grid line | uses FL's main snap (toolbar); set the Playlist and Piano Roll snap to "Main" so the playhead lands on the same grid |
+| Transport | Grid        | Rec Mode      | Button  |                                         |                                                     |
+| Transport | Play        | Metro         | Button  | play / pause (shift mode: toggle metronome) | illuminated while playing                           |
+| Transport | Rec         | Count-In      | Button  | toggle recording (shift mode: toggle count-in) | illuminated while recording                         |
+| Transport | Erase       |               | Button  |                                         |                                                     |
 | Pads   | Scene       |               | Button  |                                         |                                                     |
 | Pads   | Pattern     |               | Button  |                                         |                                                     |
 | Pads   | Pad Mode    | Keyboard      | Button  |                                         |                                                     |
@@ -136,17 +145,23 @@ These are all of the controls present on the hardware with their location, label
 | Pads   | Pad 3       | Step Undo     | Pad     |                                         |                                                     |
 | Pads   | Pad 4       | Step Redo     | Pad     |                                         |                                                     |
 | Pads   | Pad 5       | Quantize      | Pad     | quantize selection (shift mode)         |                                                     |
-| Pads   | Pad 6       | Quantize 50%  | Pad     | undo (shift mode)                       |                                                     |
+| Pads   | Pad 6       | Quantize 50%  | Pad     | quantize selection 50% (shift mode)     |                                                     |
 | Pads   | Pad 7       | Nudge Left    | Pad     |                                         |                                                     |
 | Pads   | Pad 8       | Nudge Right   | Pad     |                                         |                                                     |
 | Pads   | Pad 9       | Clear         | Pad     | delete                                  |                                                     |
 | Pads   | Pad 10      | Clear Auto    | Pad     |                                         |                                                     |
 | Pads   | Pad 11      | Copy          | Pad     | copy (shift mode)                       |                                                     |
-| Pads   | Pad 12      | Paste         | Pad     | undo (shift mode)                       |                                                     |
+| Pads   | Pad 12      | Paste         | Pad     | paste (shift mode)                      |                                                     |
 | Pads   | Pad 13      | Semitone Down | Pad     | decrease midi offset 1 step (shift mode)|                                                     |
 | Pads   | Pad 14      | Semitone Up   | Pad     | increase midi offset 1 step (shift mode)|                                                     |
-| Pads   | Pad 15      | Octave Down   | Pad     | decrease midi offset 12 steps (shift mode)|                                                   |
-| Pads   | Pad 16      | Octave Up     | Pad     | increase midi offset 12 steps (shift mode)|                                                   |
+| Pads   | Pad 15      | Octave Up     | Pad     | increase midi offset 12 steps (shift mode)|                                                   |
+| Pads   | Pad 16      | Octave Down   | Pad     | decrease midi offset 12 steps (shift mode)|                                                   |
+
+### Future features/TODO
+- shift mode for accessing alt button functionality
+- new mode w buttons for adding new patterns/channels, etc
+- pads light up on midi out 
+- encoder controls active screen + overrides
 
 ## Akai Fire
 
@@ -162,3 +177,20 @@ Of the 3 controllers, its responsible for
 ### Control Functionality
 
 **TODO**
+
+## Novation FLKey 2
+
+The fl key 2 is a compact keyboard with a set of 8 small pan pots.
+
+Of the 3 controllers, its responsible for 
+- providing a keyboard to record melodies with
+- tweaking and choosing presets
+
+### Hardware Layout Diagram
+
+**TODO**
+
+### Control Functionality
+
+**TODO**
+
