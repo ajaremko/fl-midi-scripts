@@ -150,14 +150,14 @@ These are all of the controls present on the hardware with their location, label
 | Pads   | Pad 6       | Quantize 50%  | Pad     | not available: FL's scripting API has no quantize strength |                                                     |
 | Pads   | Pad 7       | Nudge Left    | Pad     |                                         |                                                     |
 | Pads   | Pad 8       | Nudge Right   | Pad     |                                         |                                                     |
-| Pads   | Pad 9       | Clear         | Pad     | delete (shift mode)                     | lit red in shift mode                               |
+| Pads   | Pad 9       | Clear         | Pad     | cut (shift mode)                        | lit red in shift mode                               |
 | Pads   | Pad 10      | Clear Auto    | Pad     |                                         |                                                     |
 | Pads   | Pad 11      | Copy          | Pad     | copy (shift mode)                       | lit blue in shift mode                              |
 | Pads   | Pad 12      | Paste         | Pad     | paste (shift mode)                      | lit blue in shift mode                              |
-| Pads   | Pad 13      | Semitone Down | Pad     | decrease midi offset 1 step (shift mode)|                                                     |
-| Pads   | Pad 14      | Semitone Up   | Pad     | increase midi offset 1 step (shift mode)|                                                     |
-| Pads   | Pad 15      | Octave Up     | Pad     | increase midi offset 12 steps (shift mode)|                                                   |
-| Pads   | Pad 16      | Octave Down   | Pad     | decrease midi offset 12 steps (shift mode)|                                                   |
+| Pads   | Pad 13      | Semitone Down | Pad     | decrease pad transpose 1 step (shift mode) | lit purple in shift mode; not available in FPC mode |
+| Pads   | Pad 14      | Semitone Up   | Pad     | increase pad transpose 1 step (shift mode) | lit purple in shift mode; not available in FPC mode |
+| Pads   | Pad 15      | Octave Up     | Pad     | increase pad transpose 12 steps (shift mode) | lit purple in shift mode; not available in FPC mode |
+| Pads   | Pad 16      | Octave Down   | Pad     | decrease pad transpose 12 steps (shift mode) | lit purple in shift mode; not available in FPC mode |
 
 ### Future features/TODO
 - shift mode for accessing alt button functionality
@@ -172,7 +172,7 @@ F8 toggles shift mode and F7 toggles new mode. Only one of them is on at a time:
 - **Shift mode** gives controls their "(shift mode)" function above, such as Browse (plugin picker), Play (metro), Rec (count-in) and the pads (undo, redo, quantize, clear, copy, paste, …). It stays on until F8 is pressed again. In shift mode the pads never play notes.
 - **New mode** gives controls their "(new mode)" function: Browse opens FL's Add menu to add a channel, and Pattern starts a new pattern. New mode is one-shot: using a new-mode function turns it off. Controls without a new-mode function keep their normal function, and new mode stays on.
 
-While either mode is on, only its button and the controls with a *working* function in that mode are lit; functions that aren't written yet (or can't be done from an FL script) stay unlit. In shift mode the pads light in colours by function: undo/redo orange, copy/paste blue, quantize green, clear red. Every other button goes dim, and the pads and Group buttons without a function go dark. The usual state lights (the focused window, Play/Rec) come back when the mode is turned off. Entering either mode also turns off any active encoder override.
+While either mode is on, only its button and the controls with a *working* function in that mode are lit; functions that aren't written yet (or can't be done from an FL script) stay unlit. In shift mode the pads light in colours by function: undo/redo orange, copy/paste blue, quantize green, clear red, transpose (semitone/octave) purple. Every other button goes dim, and the pads and Group buttons without a function go dark. The usual state lights (the focused window, Play/Rec) come back when the mode is turned off. Entering either mode also turns off any active encoder override.
 
 ## Akai Fire
 

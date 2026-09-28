@@ -3,6 +3,7 @@
 focused = None
 snap_mode = 3  # Snap_None
 in_popup_menu = False
+hints = []  # messages passed to setHintMsg
 
 
 def getFocused(window):
@@ -30,3 +31,7 @@ def getSnapMode():
 
 def isInPopupMenu():
     return 1 if in_popup_menu else 0
+
+
+def setHintMsg(message):
+    hints.append(message)

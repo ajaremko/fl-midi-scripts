@@ -102,14 +102,14 @@ _shift = {
     "PAD_6": unimplemented("quantize 50% (not possible: FL's quickQuantize has no strength setting)"),
     "PAD_7": unimplemented("nudge left"),
     "PAD_8": unimplemented("nudge right"),
-    "PAD_9": ui_commands.send(midi.FPT_Delete),
+    "PAD_9": ui_commands.send(midi.FPT_Cut),
     "PAD_10": unimplemented("clear automation"),
     "PAD_11": ui_commands.send(midi.FPT_Copy),
     "PAD_12": ui_commands.send(midi.FPT_Paste),
-    "PAD_13": unimplemented("decrease midi offset 1 step"),
-    "PAD_14": unimplemented("increase midi offset 1 step"),
-    "PAD_15": unimplemented("increase midi offset 12 steps"),
-    "PAD_16": unimplemented("decrease midi offset 12 steps"),
+    "PAD_13": pads.transpose(-1),  # semitone down
+    "PAD_14": pads.transpose(+1),  # semitone up
+    "PAD_15": pads.transpose(+12),  # octave up
+    "PAD_16": pads.transpose(-12),  # octave down
 }
 
 # New mode is one-shot: each function turns New mode off after it runs.
@@ -138,6 +138,10 @@ MODE_CONTROLS = {
     SHIFT: _implemented(_shift),
     NEW: _implemented(_new),
 }
+
+# Mode functions that do nothing while the selected channel is FPC (so they aren't highlighted then):
+# transposing the chromatic pad layout doesn't apply to FPC's own pad notes.
+FPC_DISABLED = frozenset(["PAD_13", "PAD_14", "PAD_15", "PAD_16"])
 
 
 def lookup(state, control_id):

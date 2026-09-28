@@ -87,6 +87,7 @@ class ScriptTestCase(unittest.TestCase):
         ui.focused = None
         ui.snap_mode = midi.Snap_None
         ui.in_popup_menu = False
+        ui.hints = []
         channels.focused_editors = []
         channels.quantized = []
         transport.reset()
@@ -638,7 +639,8 @@ class ShiftModeTest(ScriptTestCase):
     def test_shift_lights_implemented_pads_in_function_colours_and_darkens_groups(self):
         self.shift()
         expected = {"PAD_1": colors.ORANGE, "PAD_2": colors.ORANGE, "PAD_11": colors.BLUE, "PAD_12": colors.BLUE,
-                    "PAD_5": colors.GREEN, "PAD_9": colors.RED}
+                    "PAD_5": colors.GREEN, "PAD_9": colors.RED,
+                    "PAD_13": colors.PURPLE, "PAD_14": colors.PURPLE, "PAD_15": colors.PURPLE, "PAD_16": colors.PURPLE}
         for pad_id in PAD_IDS:
             self.assertEqual(self.led(pad_id), expected.get(pad_id, colors.OFF), pad_id)
         for group_id in GROUP_IDS:
@@ -773,9 +775,9 @@ class ShiftPadTest(ScriptTestCase):
         self.hit("PAD_5")
         self.assertEqual(channels.quantized, [(2, 1)])  # no channel selected: nothing
 
-    def test_clear_sends_delete(self):
+    def test_clear_sends_cut(self):
         self.hit("PAD_9")
-        self.assertEqual(transport.calls, [("globalTransport", midi.FPT_Delete, 1)])
+        self.assertEqual(transport.calls, [("globalTransport", midi.FPT_Cut, 1)])
 
     def test_quantize_50_stays_dark_and_silent(self):
         event = self.hit("PAD_6")
@@ -950,6 +952,75 @@ class DiagnosticsTest(ScriptTestCase):
         text = self.log_text()
         self.assertIn("! exception in OnRefresh", text)
         self.assertIn("ValueError: boom", text)
+
+
+class TransposeTest(ScriptTestCase):
+    def shifted_hit(self, pad_id):
+        self.controller.state.mode = SHIFT
+        self.send(note_on(controls.BY_ID[pad_id].number))
+        self.send(note_off(controls.BY_ID[pad_id].number))
+        self.controller.state.mode = None
+
+    def play(self, pad_id):
+        return self.send(note_on(controls.BY_ID[pad_id].number)).data1
+
+    def test_semitone_and_octave_shift_the_pad_notes(self):
+        self.shifted_hit("PAD_14")  # semitone up
+        self.assertEqual(self.controller.state.note_offset, 1)
+        self.assertEqual(self.play("PAD_1"), 49)  # Group D: 48 + 1
+        self.shifted_hit("PAD_15")  # octave up
+        self.assertEqual(self.play("PAD_2"), 62)  # Group D PAD_2 is 49, offset now 13
+        self.shifted_hit("PAD_16")  # octave down
+        self.shifted_hit("PAD_13")  # semitone down
+        self.assertEqual(self.controller.state.note_offset, 0)
+        self.assertEqual(ui.hints[-1], "Pad transpose: +0 semitones")
+        self.assertEqual(ui.hints[0], "Pad transpose: +1 semitones")
+
+    def test_offset_is_clamped(self):
+        for _ in range(10):
+            self.shifted_hit("PAD_15")
+        self.assertEqual(self.controller.state.note_offset, notes.MAX_NOTE_OFFSET)
+        for _ in range(20):
+            self.shifted_hit("PAD_16")
+        self.assertEqual(self.controller.state.note_offset, -notes.MAX_NOTE_OFFSET)
+
+    def test_out_of_range_pads_are_silent_and_dark(self):
+        self.controller.state.pad_group = 7  # Group H: 112-127
+        self.controller.state.note_offset = 12
+        self.refresh()
+        event = self.send(note_on(controls.BY_ID["PAD_16"].number))  # 127 + 12
+        self.assertTrue(event.handled)
+        self.assertEqual(self.controller.leds._sent["PAD_16"], colors.OFF)
+        self.assertEqual(self.play("PAD_1"), 124)  # 112 + 12 is fine
+        self.assertNotEqual(self.controller.leds._sent["PAD_1"], colors.OFF)
+
+    def test_held_note_releases_after_transpose(self):
+        pad_1 = controls.BY_ID["PAD_1"].number
+        self.send(note_on(pad_1))
+        self.shifted_hit("PAD_15")
+        event = self.send(note_off(pad_1))
+        self.assertEqual(event.data1, 48)  # the note that was sent at press
+
+    def test_transpose_disabled_in_fpc_mode(self):
+        plugins.names[1] = "FPC"
+        plugins.pads[1] = [(36 + i, 0xFF0000, False) for i in range(32)]
+        channels.selected = 1
+        self.refresh()
+        self.controller.state.mode = SHIFT
+        self.refresh()
+        for pad_id in ("PAD_13", "PAD_14", "PAD_15", "PAD_16"):
+            self.assertEqual(self.controller.leds._sent[pad_id], colors.OFF, pad_id)
+        self.send(note_on(controls.BY_ID["PAD_15"].number))
+        self.assertEqual(self.controller.state.note_offset, 0)
+        self.assertEqual(ui.hints, [])
+
+    def test_fpc_pads_ignore_an_existing_offset(self):
+        self.controller.state.note_offset = 12
+        plugins.names[1] = "FPC"
+        plugins.pads[1] = [(36 + i, 0xFF0000, False) for i in range(32)]
+        channels.selected = 1
+        self.refresh()
+        self.assertEqual(self.play("PAD_1"), 36)
 
 
 # FPC on channel 1: bank A pads are red with notes 36-51 and pad 2 empty; bank B pads are blue

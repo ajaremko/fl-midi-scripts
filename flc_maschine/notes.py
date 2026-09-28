@@ -12,8 +12,15 @@ NOTES_PER_GROUP = 16
 PAD_INDEX = {control.id: index for index, control in enumerate(controls.PADS)}
 
 
-def pad_note(pad_group, pad_index):
-    return pad_group * NOTES_PER_GROUP + pad_index
+# How far shift Pads 13-16 (Semitone / Octave -/+) can transpose the pads, in semitones.
+MAX_NOTE_OFFSET = 60
+
+
+def pad_note(pad_group, pad_index, offset=0):
+    """The note a pad plays in the chromatic layout, shifted by offset semitones, or None when that
+    falls outside MIDI's 0-127 (the pad is then silent)."""
+    note = pad_group * NOTES_PER_GROUP + pad_index + offset
+    return note if 0 <= note <= 127 else None
 
 
 # While the selected channel is FPC, Group E plays FPC's bank A and Group F its bank B; the other

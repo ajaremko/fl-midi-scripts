@@ -30,6 +30,8 @@ class ControllerState:
         self.sounding = {}
         # Toggled by Pad Mode. While on, pads play at pads.FIXED_VELOCITY however hard they're hit.
         self.fixed_velocity = False
+        # Semitones added to the pads' chromatic notes; set by shift Pads 13-16 (Semitone/Octave).
+        self.note_offset = 0
         # The FPC channel selected at the last render, or None. Selecting a different FPC jumps
         # the pads to Group E.
         self.fpc_channel = None

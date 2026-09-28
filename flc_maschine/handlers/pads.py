@@ -5,6 +5,8 @@ While the selected channel is FPC, Groups E and F play FPC's two banks instead (
 and the other groups are silent.
 """
 
+import ui
+
 from .. import events, fpc, log, notes
 from .common import on_press
 
@@ -22,7 +24,7 @@ def _note_for_press(state, fl, pad_index):
     can call at the same time as other callbacks.
     """
     if fl.fpc_channel is None or fl.fpc_banks is None:
-        return notes.pad_note(state.pad_group, pad_index)
+        return notes.pad_note(state.pad_group, pad_index, state.note_offset)
 
     bank = notes.FPC_BANK_FOR_GROUP.get(state.pad_group)
     if bank is None:
@@ -60,6 +62,23 @@ def play(controller, ev):
 def toggle_fixed_velocity(controller, ev):
     """Pad Mode: turn fixed (full) pad velocity on or off."""
     controller.state.fixed_velocity = not controller.state.fixed_velocity
+
+
+def transpose(semitones):
+    """Shift pads 13-16: move the pads' chromatic notes by `semitones`, within +-MAX_NOTE_OFFSET.
+
+    Disabled in FPC mode, where the pads play FPC's own pad notes.
+    """
+
+    @on_press
+    def handler(controller, ev):
+        if controller.fl.fpc_channel is not None:
+            return
+        state = controller.state
+        state.note_offset = max(-notes.MAX_NOTE_OFFSET, min(notes.MAX_NOTE_OFFSET, state.note_offset + semitones))
+        ui.setHintMsg("Pad transpose: %+d semitones" % state.note_offset)
+
+    return handler
 
 
 def follow_fpc_selection(state, fl):

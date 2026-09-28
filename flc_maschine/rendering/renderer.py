@@ -41,8 +41,10 @@ def _channel_color(state, fl, frame):
     fpc_mode = fl.fpc_channel is not None
 
     if not fpc_mode:
-        for pad_id in _PAD_IDS:
-            frame[pad_id] = lit
+        for index, pad_id in enumerate(_PAD_IDS):
+            # Dark when the transposed note is out of MIDI's range: the pad is silent then.
+            if notes.pad_note(state.pad_group, index, state.note_offset) is not None:
+                frame[pad_id] = lit
     else:
         bank = notes.FPC_BANK_FOR_GROUP.get(state.pad_group)
         if bank is not None:
@@ -101,7 +103,11 @@ MODE_COLORS = {
         "PAD_11": colors.BLUE,  # copy
         "PAD_12": colors.BLUE,  # paste
         "PAD_5": colors.GREEN,  # quantize
-        "PAD_9": colors.RED,  # clear (delete)
+        "PAD_9": colors.RED,  # clear (cut)
+        "PAD_13": colors.PURPLE,  # semitone down
+        "PAD_14": colors.PURPLE,  # semitone up
+        "PAD_15": colors.PURPLE,  # octave up
+        "PAD_16": colors.PURPLE,  # octave down
     },
 }
 
@@ -118,6 +124,8 @@ def _mode_highlight(state, fl, frame):
     lit_hsb = colors.with_brightness(_channel_hsb(fl), LIT_BRIGHTNESS)
     for control in controls.LED_CONTROLS:
         shown = control.id == MODE_BUTTONS[state.mode] or control.id in mode_controls
+        if fl.fpc_channel is not None and control.id in bindings.FPC_DISABLED:
+            shown = False
         if control.led == controls.HSB:
             if not shown:
                 frame[control.id] = colors.OFF
