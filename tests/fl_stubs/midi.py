@@ -8,6 +8,17 @@ MIDI_CONTROLCHANGE = 0xB0
 GC_Semitone = 1
 
 FPT_Metronome = 110
+FPT_Left = 40
+FPT_Right = 41
+FPT_Up = 42
+FPT_Down = 43
+FPT_Insert = 50
+FPT_Enter = 80
+FPT_Escape = 81
+FPT_Menu = 90
+FPT_ItemMenu = 91
+FPT_TempoJog = 105
+FPT_ShuffleJog = 122
 FPT_CountDown = 115
 
 SONGLENGTH_ABSTICKS = 2

@@ -2,6 +2,7 @@
 
 selected = -1  # -1: no channel selected
 colors = {}  # channel index -> 0xRRGGBB
+focused_editors = []  # channel indexes passed to focusEditor
 
 
 def selectedChannel(canBeNone=0, offset=0, indexGlobal=0):
@@ -12,3 +13,7 @@ def selectedChannel(canBeNone=0, offset=0, indexGlobal=0):
 
 def getChannelColor(index):
     return colors.get(index, 0)
+
+
+def focusEditor(index, useGlobalIndex=False):
+    focused_editors.append(index)

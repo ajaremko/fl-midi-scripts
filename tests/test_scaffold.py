@@ -16,6 +16,7 @@ sys.path[:0] = [os.path.join(HERE, "fl_stubs"), ROOT]
 import channels  # noqa: E402  (the stub)
 import device  # noqa: E402  (the stub)
 import general  # noqa: E402  (the stub)
+import mixer  # noqa: E402  (the stub)
 import plugins  # noqa: E402  (the stub)
 import transport  # noqa: E402  (the stub)
 import ui  # noqa: E402  (the stub)
@@ -81,7 +82,10 @@ class ScriptTestCase(unittest.TestCase):
         log.DEBUG_FPC_COLORS = False
         ui.focused = None
         ui.snap_mode = midi.Snap_None
+        ui.in_popup_menu = False
+        channels.focused_editors = []
         transport.reset()
+        mixer.track_volume = {0: 0.8}
         general.ppq = 96
         general.ppb = 384
         self.log = io.StringIO()
@@ -144,22 +148,50 @@ class ScaffoldTest(ScriptTestCase):
         self.assertEqual(colors.rgb_to_hsb(0x808080), (0, 0, 64))
         self.assertEqual(colors.rgb_to_hsb(-0xFF0100), (42, 127, 127))  # high bits ignored
 
-    def test_f5_toggles_shift_and_its_led(self):
-        f5 = controls.BY_ID["F5"].number
+    def test_f8_toggles_shift_and_its_led(self):
+        f8 = controls.BY_ID["F8"].number
 
-        self.assertTrue(self.send(cc(f5)).handled)
+        self.assertTrue(self.send(cc(f8)).handled)
         self.assertTrue(self.controller.state.shift)
-        self.assertEqual([unpack(m) for m in device.sent], [(midi.MIDI_CONTROLCHANGE, f5, 127)])
+        self.assertEqual([unpack(m) for m in device.sent], [(midi.MIDI_CONTROLCHANGE, f8, 127)])
 
-        self.send(cc(f5))
+        self.send(cc(f8))
         self.assertFalse(self.controller.state.shift)
-        self.assertEqual([unpack(m) for m in device.sent], [(midi.MIDI_CONTROLCHANGE, f5, 0)])
+        self.assertEqual([unpack(m) for m in device.sent], [(midi.MIDI_CONTROLCHANGE, f8, 0)])
 
     def test_pressed_button_led_is_reasserted(self):
         # A toggle button lights itself on the hardware, so the script resends "off".
         mute = controls.BY_ID["MUTE"].number
         self.send(cc(mute))
         self.assertEqual([unpack(m) for m in device.sent], [(midi.MIDI_CONTROLCHANGE, mute, 0)])
+
+    def test_f5_and_f6_send_menu_and_escape(self):
+        for button, command in (("F5", midi.FPT_Menu), ("F6", midi.FPT_Escape)):
+            with self.subTest(button=button):
+                del transport.calls[:]
+                self.send(cc(controls.BY_ID[button].number))
+                self.assertEqual(transport.calls, [("globalTransport", command, 1)])
+                self.assertFalse(self.controller.state.shift)
+                self.assertFalse(self.controller.leds._sent[button])
+
+    def test_f5_opens_the_item_menu_in_browser_and_piano_roll(self):
+        cases = [
+            (midi.widBrowser, midi.FPT_ItemMenu),
+            (midi.widPianoRoll, midi.FPT_ItemMenu),
+            (midi.widMixer, midi.FPT_Menu),
+            (midi.widChannelRack, midi.FPT_Menu),
+            (midi.widPlaylist, midi.FPT_Menu),
+        ]
+        for window, command in cases:
+            with self.subTest(window=window):
+                ui.focused = window
+                del transport.calls[:]
+                self.send(cc(controls.BY_ID["F5"].number))
+                self.assertEqual(transport.calls, [("globalTransport", command, 1)])
+
+    def test_f7_new_is_unimplemented(self):
+        self.send(cc(controls.BY_ID["F7"].number))
+        self.assertIn('unimplemented: F7 "new"', self.log.getvalue())
 
     def test_pads_pass_through_to_fl_at_group_d_notes(self):
         pad_1 = controls.BY_ID["PAD_1"].number
@@ -192,7 +224,7 @@ class ScaffoldTest(ScriptTestCase):
     def test_aftertouch_follows_the_sounding_note(self):
         pad_1 = controls.BY_ID["PAD_1"].number
         self.send(note_on(pad_1))
-        self.send(cc(controls.BY_ID["F5"].number))  # shift on while the pad is held
+        self.send(cc(controls.BY_ID["F8"].number))  # shift on while the pad is held
         event = self.send(FakeEvent(midi.MIDI_KEYAFTERTOUCH, pad_1, 90))
         self.assertFalse(event.handled)
         self.assertEqual(event.data1, 48)
@@ -206,7 +238,7 @@ class ScaffoldTest(ScriptTestCase):
     def test_release_goes_to_the_handler_that_took_the_press(self):
         pad = controls.BY_ID["PAD_1"].number
         self.send(note_on(pad))
-        self.send(cc(controls.BY_ID["F5"].number))  # shift on while the pad is held
+        self.send(cc(controls.BY_ID["F8"].number))  # shift on while the pad is held
         self.assertFalse(self.send(note_off(pad)).handled)  # note-off still reaches FL
 
     def test_unimplemented_controls_log(self):
@@ -228,7 +260,7 @@ class ScaffoldTest(ScriptTestCase):
                 else:
                     self.send(note_on(control.number))
                     self.send(note_off(control.number))
-                self.controller.state.shift = shift  # undo F5's toggle
+                self.controller.state.shift = shift  # undo F8's toggle
         self.assertNotIn("handler failed", self.log.getvalue())
 
     def test_refresh_without_changes_sends_nothing(self):
@@ -237,13 +269,13 @@ class ScaffoldTest(ScriptTestCase):
         self.assertEqual(device.sent, [])
 
     def test_deinit_turns_lit_leds_off(self):
-        self.send(cc(controls.BY_ID["F5"].number))
+        self.send(cc(controls.BY_ID["F8"].number))
         device.reset()
         script.OnDeInit()
         sent = [unpack(m) for m in device.sent]
         self.assertTrue(all(value == 0 for _, _, value in sent))
         lit = {data1 for _, data1, _ in sent}
-        self.assertIn(controls.BY_ID["F5"].number, lit)
+        self.assertIn(controls.BY_ID["F8"].number, lit)
         self.assertIn(controls.BY_ID["PAD_1"].number, lit)
         self.assertIn(controls.BY_ID["GROUP_H"].number, lit)
 
@@ -369,6 +401,121 @@ class TransportTest(ScriptTestCase):
         self.press("ERASE")
         self.assertIn("unimplemented: GRID", self.log.getvalue())
         self.assertIn("unimplemented: ERASE", self.log.getvalue())
+
+
+class EncoderTest(ScriptTestCase):
+    def press(self, control_id):
+        del transport.calls[:]
+        return self.send(cc(controls.BY_ID[control_id].number))
+
+    def turn(self, delta):
+        del transport.calls[:]
+        return self.send(cc(controls.BY_ID["ENCODER"].number, delta & 0x7F))  # two's complement
+
+    def lit_override_buttons(self):
+        return [b for b in ("VOLUME", "SWING", "TEMPO") if self.controller.leds._sent[b]]
+
+    def test_override_buttons_toggle_their_mode_and_led(self):
+        self.press("VOLUME")
+        self.assertEqual(self.controller.state.encoder_mode, "VOLUME")
+        self.assertEqual(self.lit_override_buttons(), ["VOLUME"])
+        self.press("VOLUME")
+        self.assertIsNone(self.controller.state.encoder_mode)
+        self.assertEqual(self.lit_override_buttons(), [])
+
+    def test_pressing_another_override_switches_to_it(self):
+        self.press("VOLUME")
+        self.press("SWING")
+        self.assertEqual(self.controller.state.encoder_mode, "SWING")
+        self.assertEqual(self.lit_override_buttons(), ["SWING"])
+
+    def test_volume_override_adjusts_master_volume(self):
+        self.press("VOLUME")
+        self.turn(1)
+        self.assertAlmostEqual(mixer.track_volume[0], 0.85)
+        self.turn(-1)
+        self.turn(-1)
+        self.assertAlmostEqual(mixer.track_volume[0], 0.75)
+        for _ in range(10):
+            self.turn(1)
+        self.assertEqual(mixer.track_volume[0], 1.0)
+        mixer.track_volume[0] = 0.02
+        self.turn(-1)
+        self.assertEqual(mixer.track_volume[0], 0.0)
+
+    def test_swing_and_tempo_overrides_jog(self):
+        self.press("SWING")
+        self.turn(1)
+        self.assertEqual(transport.calls, [("globalTransport", midi.FPT_ShuffleJog, 10)])
+        self.press("TEMPO")
+        self.turn(-1)
+        self.assertEqual(transport.calls, [("globalTransport", midi.FPT_TempoJog, -10)])
+        self.turn(3)
+        self.assertEqual(transport.calls, [("globalTransport", midi.FPT_TempoJog, 30)])
+
+    def jogs(self):
+        return [call[1] for call in transport.calls if call[0] == "globalTransport"]
+
+    def test_turn_with_nothing_focused_does_nothing(self):
+        self.turn(1)
+        self.assertEqual(transport.calls, [])
+        self.assertEqual(mixer.track_volume[0], 0.8)
+
+    def test_turn_navigates_the_focused_window(self):
+        cases = [
+            (midi.widMixer, midi.FPT_Left, midi.FPT_Right),
+            (midi.widChannelRack, midi.FPT_Up, midi.FPT_Down),
+            (midi.widPlaylist, midi.FPT_Up, midi.FPT_Down),
+            (midi.widPianoRoll, midi.FPT_Up, midi.FPT_Down),
+            (midi.widBrowser, midi.FPT_Up, midi.FPT_Down),
+        ]
+        for window, counter_clockwise, clockwise in cases:
+            with self.subTest(window=window):
+                ui.focused = window
+                self.turn(1)
+                self.assertEqual(self.jogs(), [clockwise])
+                self.turn(-1)
+                self.assertEqual(self.jogs(), [counter_clockwise])
+
+    def test_popup_menu_takes_priority(self):
+        ui.focused = midi.widMixer
+        ui.in_popup_menu = True
+        self.turn(1)
+        self.assertEqual(self.jogs(), [midi.FPT_Down])
+        self.press("ENCODER_PUSH")
+        self.assertEqual(self.jogs(), [midi.FPT_Enter])
+
+    def test_override_takes_priority_over_navigation(self):
+        ui.focused = midi.widMixer
+        self.press("VOLUME")
+        self.turn(1)
+        self.assertEqual(transport.calls, [])
+        self.assertAlmostEqual(mixer.track_volume[0], 0.85)
+
+    def test_push_does_the_focused_windows_action(self):
+        cases = [
+            (midi.widBrowser, [midi.FPT_Enter]),
+            (midi.widMixer, [midi.FPT_Menu]),
+            (midi.widPlaylist, [midi.FPT_Menu]),
+            (midi.widPianoRoll, [midi.FPT_Menu]),
+        ]
+        for window, expected in cases:
+            with self.subTest(window=window):
+                ui.focused = window
+                self.press("ENCODER_PUSH")
+                self.assertEqual(self.jogs(), expected)
+
+    def test_push_in_channel_rack_opens_the_selected_channel(self):
+        ui.focused = midi.widChannelRack
+        channels.selected = 2
+        self.press("ENCODER_PUSH")
+        self.assertEqual(self.jogs(), [midi.FPT_Insert])
+        self.assertEqual(channels.focused_editors, [2])
+
+    def test_push_with_nothing_focused_does_nothing(self):
+        self.press("ENCODER_PUSH")
+        self.assertEqual(transport.calls, [])
+        self.assertEqual(channels.focused_editors, [])
 
 
 # FPC on channel 1: bank A pads are red with notes 36-51 and pad 2 empty; bank B pads are blue

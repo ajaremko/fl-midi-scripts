@@ -2,6 +2,7 @@
 
 focused = None
 snap_mode = 3  # Snap_None
+in_popup_menu = False
 
 
 def getFocused(window):
@@ -25,3 +26,7 @@ def hideWindow(window):
 
 def getSnapMode():
     return snap_mode
+
+
+def isInPopupMenu():
+    return 1 if in_popup_menu else 0

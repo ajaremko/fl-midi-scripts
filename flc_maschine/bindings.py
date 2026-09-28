@@ -13,7 +13,15 @@ unimplemented(...) with a real handler as the feature is written.
 import midi
 
 from .handlers.common import unimplemented
-from .handlers import groups, modes, pads, transport_controls, windows
+from .handlers import (
+    encoder,
+    groups,
+    modes,
+    pads,
+    transport_controls,
+    ui_commands,
+    windows,
+)
 from .state import BASE, SHIFT
 
 _base = {
@@ -28,17 +36,23 @@ _base = {
     "F2": windows.toggle(midi.widPianoRoll),
     "F3": windows.toggle(midi.widPlaylist),
     "F4": windows.toggle(midi.widMixer),
-    "F5": modes.toggle_shift,
+    "F5": ui_commands.send_for_focus(midi.FPT_Menu, {
+        midi.widBrowser: midi.FPT_ItemMenu,
+        midi.widPianoRoll: midi.FPT_ItemMenu,
+    }),
+    "F6": ui_commands.send(midi.FPT_Escape),
+    "F7": unimplemented("new"),
+    "F8": modes.toggle_shift,
     # Master
-    "VOLUME": unimplemented("hold + turn encoder to adjust master volume"),
-    "SWING": unimplemented("hold + turn encoder to adjust master swing"),
-    "TEMPO": unimplemented("hold + turn encoder to adjust master tempo"),
+    "VOLUME": encoder.toggle_mode("VOLUME"),
+    "SWING": encoder.toggle_mode("SWING"),
+    "TEMPO": encoder.toggle_mode("TEMPO"),
     "MASTER_LEFT": unimplemented(),
     "MASTER_RIGHT": unimplemented(),
     "ENTER": unimplemented("enter"),
     "NOTE_REPEAT": unimplemented(),
-    "ENCODER": unimplemented("navigate up/down in current screen"),
-    "ENCODER_PUSH": unimplemented("enter"),
+    "ENCODER": encoder.turn,
+    "ENCODER_PUSH": encoder.push,
     # Transport
     "RESTART": transport_controls.restart,
     "STEP_LEFT": transport_controls.step_left,
@@ -58,8 +72,8 @@ _base = {
     "MUTE": unimplemented(),
 }
 
-# F6-F16 have no function yet.
-for _i in range(6, 17):
+# F9-F16 have no function yet.
+for _i in range(9, 17):
     _base["F%d" % _i] = unimplemented()
 
 for _index, _letter in enumerate("ABCDEFGH"):

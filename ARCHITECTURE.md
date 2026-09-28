@@ -35,8 +35,10 @@ FL Complete/
 │   ├── log.py                     prefixed printing to the Script output window
 │   ├── handlers/
 │   │   ├── common.py              unimplemented, passthrough, on_press
+│   │   ├── encoder.py             master encoder: navigate/push the focused window; Volume/Swing/Tempo overrides
 │   │   ├── groups.py              select (Group A–H)
 │   │   ├── transport_controls.py  Restart, Play/Metro, Rec/Count-In, Step Left/Right
+│   │   ├── ui_commands.py         send / send_for_focus: one FL command per press (F5 Menu, F6 Esc)
 │   │   ├── windows.py             toggle (BROWSE, F1–F4)
 │   │   ├── pads.py                play: translate pad notes for the selected group
 │   │   └── modes.py               toggle_shift
@@ -129,8 +131,10 @@ The other callbacks:
 | [log.py](flc_maschine/log.py) | `[FLC MK2]` prefixed output; optional raw MIDI trace | `info`, `trace_midi`, `TRACE_MIDI` | No |
 | [handlers/common.py](flc_maschine/handlers/common.py) | Reusable handlers and wrappers | `unimplemented`, `passthrough`, `on_press` | No |
 | [handlers/modes.py](flc_maschine/handlers/modes.py) | Handlers that change the controller's own modes | `toggle_shift` | No |
+| [handlers/encoder.py](flc_maschine/handlers/encoder.py) | Master encoder. Turning navigates an open popup menu or the focused window (`NAVIGATION`); pushing does that window's action (`PUSH`). Volume, Swing and Tempo toggle an override mode that takes over turning to adjust master volume, swing or tempo (`MODES`) | `turn`, `push`, `toggle_mode`, `MODES`, `NAVIGATION`, `PUSH` | `channels`, `mixer`, `transport`, `ui`, `midi` |
 | [handlers/groups.py](flc_maschine/handlers/groups.py) | Group A–H buttons: select the pad group | `select` | No |
 | [handlers/transport_controls.py](flc_maschine/handlers/transport_controls.py) | Transport buttons. Step Left/Right move to the previous/next grid line of FL's main snap (`ui.getSnapMode`), sized from FL's timebase (`general.getRecPPQ`, `getRecPPB`). The position is read with `mixer.getSongTickPos()`, because `transport.getSongPos` stays at 0 in Song mode while stopped ([known-issues.md](known-issues.md)) | `restart`, `play`, `record`, `metronome`, `count_in`, `step_left`, `step_right`, `snap_ticks`, `next_position` | `transport`, `general`, `mixer`, `ui`, `midi` |
+| [handlers/ui_commands.py](flc_maschine/handlers/ui_commands.py) | Buttons that send one FL command per press. `send_for_focus` picks the command by focused window: F5 sends `FPT_ItemMenu` in the Browser and Piano Roll, otherwise `FPT_Menu`. F6 Esc sends `FPT_Escape` | `send`, `send_for_focus` | `transport`, `ui` |
 | [handlers/windows.py](flc_maschine/handlers/windows.py) | BROWSE and F1–F4: show and focus a window, or hide it if already focused | `toggle` | `ui` |
 | [handlers/pads.py](flc_maschine/handlers/pads.py) | Pads: rewrite the note to the selected group's note and pass it to FL | `play` | No |
 | [rendering/fl_state.py](flc_maschine/rendering/fl_state.py) | Read FL Studio's state once per render: focused window, transport, selected channel's colour, selected FPC and its pads | `FlSnapshot`, `WINDOWS` | `midi`, `ui`, `transport`, `channels`, and `plugins` through `fpc.py` (reads only) |
@@ -168,9 +172,9 @@ Handler modules that perform FL actions, such as `handlers/windows.py`, import w
 
 | Field | Meaning |
 |---|---|
-| `shift` | Latched by F5. While on, the `shift` layer takes priority over `base`. |
+| `shift` | Latched by F8. While on, the `shift` layer takes priority over `base`. |
 | `held` | Control id → the handler that took its press, for gate controls currently held down |
-| `encoder_mode` | Reserved: what the master encoder controls while Volume, Swing or Tempo is held |
+| `encoder_mode` | The master encoder's override mode, `"VOLUME"`, `"SWING"` or `"TEMPO"`, toggled by those buttons; `None` when off. The active button is lit. |
 | `pad_group` | The pad group (0–7 for A–H) chosen with the Group buttons. It picks the pads' notes, and its Group button is lit brightest. Starts on 3 (Group D), which holds middle C. |
 | `sounding` | Pad id → the note sent when it was pressed, so its aftertouch and note-off use that note even if the group changes while it is held |
 | `fpc_channel` | The FPC channel selected at the last render, or `None`. Selecting a different FPC jumps the pads to Group E. |
@@ -248,7 +252,6 @@ The Akai Fire hard-codes FPC's default notes instead; the Novation FLkey 2 queri
 
 **Template changes still needed**
 
-- Volume, Swing and Tempo are `trigger`, so they send no release and "hold + turn" cannot be detected. Set them to `gate`.
 - E1–E16 are `absolute`. Relative (`comp`) suits endless encoders better.
 
 ## 7. Extending the script
@@ -281,24 +284,26 @@ _base = {
 
 A handler is any function `handler(controller, ev)`. It receives every event for its control: presses, releases, turns and so on. Wrap it in `on_press` if it should only act on presses. Put shift-mode behaviour in `_shift` under the same control id.
 
-### Add a hold modifier (Volume + encoder)
+### Add an encoder override
 
-1. Set Volume to `gate` in the template, and `GATE` in `controls.py`.
-2. Bind a handler that records the mode while the button is held:
+Volume, Swing and Tempo are toggled overrides for the master encoder ([handlers/encoder.py](flc_maschine/handlers/encoder.py)). To add another:
+
+1. Write a function that takes the encoder's signed `delta` and adjusts something, and add it to `MODES` under the id of the button that should toggle it:
 
    ```python
-   def hold_encoder_mode(mode):
-       def handler(controller, ev):
-           if ev.is_press:
-               controller.state.encoder_mode = mode
-           elif ev.is_release:
-               controller.state.encoder_mode = None
+   def _pattern(delta):
+       transport.globalTransport(midi.FPT_PatternJog, delta)
 
-       return handler
+
+   MODES = {
+       ...
+       "PATTERN": _pattern,
+   }
    ```
 
-3. In the ENCODER handler, branch on `controller.state.encoder_mode` and use `ev.delta` for the step.
-4. Add a renderer rule so Volume lights while held: `frame["VOLUME"] = state.encoder_mode == "VOLUME"`.
+2. Bind the button in `bindings.py`: `"PATTERN": encoder.toggle_mode("PATTERN")`.
+
+The renderer's `_encoder_mode` rule lights whichever button's mode is active, so no LED code is needed.
 
 ### Light an LED
 
@@ -315,6 +320,7 @@ RULES = [
     _channel_color,
     _focused_window,
     _transport,
+    _encoder_mode,
     _shift_indicator,
 ]
 ```
@@ -354,9 +360,10 @@ python3 -m unittest discover -s tests -v
 - LEDs at init and deinit.
 - Pads and Group buttons in the selected channel's colour, the bright Group button following the selection, and only changed HSB components being resent.
 - `colors.rgb_to_hsb` conversions.
-- F5 toggling shift and its LED.
+- F8 toggling shift and its LED; F5 and F6 sending Menu and Escape.
 - Window buttons (`WindowButtonsTest`): focusing and hiding, one lit button per focused window, and focus changes made outside the script.
 - Transport (`TransportTest`): Play/Rec and their LEDs, Restart, Metro and Count-In on shift, snap step sizes, Step Left/Right grid movement, and GRID/ERASE still unimplemented.
+- Encoder (`EncoderTest`): override toggling and switching with their LEDs, master volume steps and clamping, swing and tempo jogs, navigation and push per focused window, popup menus taking priority, and overrides taking priority over navigation.
 - LED reassertion after a press.
 - Pads passing through to FL at the selected group's notes; every note 0–127 reachable exactly once; note-off and aftertouch using the note sent at press, across group and shift changes.
 - FPC mode (`FpcModeTest`): the jump to Group E, both banks' notes and colours, empty pads, silent and dark other groups, and returning to the chromatic layout.
@@ -384,8 +391,8 @@ The older script in the sibling `NI Maschine MK2` folder already implements much
 | Old code | New home |
 |---|---|
 | `navigation.handle_channels` / `pianoroll` / `playlist` / `mixer` / `browse`, `ui_windows.hideOrShowUiWindow` | Ported: [handlers/windows.py](flc_maschine/handlers/windows.py), bound to F1–F4 and BROWSE |
-| `encoder.py` turn and click handlers | ENCODER and ENCODER_PUSH handlers, branching on `state.encoder_mode` and the focused window |
-| `master.handle_volume` / `swing` / `tempo` | Hold modifiers on VOLUME, SWING and TEMPO (after the template changes them to `gate`) |
+| `encoder.py` turn and click handlers | Ported: [handlers/encoder.py](flc_maschine/handlers/encoder.py), bound to ENCODER and ENCODER_PUSH. The per-window behaviour is in the `NAVIGATION` and `PUSH` tables. |
+| `master.handle_volume` / `swing` / `tempo` | Ported: `encoder.toggle_mode`, bound to VOLUME, SWING and TEMPO (toggled, as in the old script) |
 | `transport_controls.py` | Ported: [handlers/transport_controls.py](flc_maschine/handlers/transport_controls.py). Step Left/Right now size steps from FL's timebase instead of a fixed tick table. GRID and ERASE not ported yet. |
 | `pads.handle_mute` / `handle_solo` | MUTE and SOLO handlers |
 | `groups.handle_group` | Not ported: Group buttons now select pad groups ([handlers/groups.py](flc_maschine/handlers/groups.py)) |

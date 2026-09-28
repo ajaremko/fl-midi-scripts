@@ -71,14 +71,21 @@ def _transport(state, fl, frame):
     frame["REC"] = fl.recording
 
 
+def _encoder_mode(state, fl, frame):
+    # Override modes are named after the buttons that toggle them.
+    if state.encoder_mode:
+        frame[state.encoder_mode] = True
+
+
 def _shift_indicator(state, fl, frame):
-    frame["F5"] = state.shift
+    frame["F8"] = state.shift
 
 
 RULES = [
     _channel_color,
     _focused_window,
     _transport,
+    _encoder_mode,
     _shift_indicator,
 ]
 

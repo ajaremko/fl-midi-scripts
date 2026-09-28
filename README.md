@@ -85,10 +85,10 @@ These are all of the controls present on the hardware with their location, label
 | Top    | F2          |               | Button  | focus piano roll window; press again to hide                 | illuminated when piano roll window is focused       |
 | Top    | F3          |               | Button  | focus playlist window; press again to hide                   | illuminated when playlist window is focused         |
 | Top    | F4          |               | Button  | focus mixer window; press again to hide                      | illuminated when mixer window is focused            |
-| Top    | F5          |               | Button  | toggle shift mode                       | illuminated when shift mode is active               |
-| Top    | F6          |               | Button  |                                         |                                                     |
-| Top    | F7          |               | Button  |                                         |                                                     |
-| Top    | F8          |               | Button  |                                         |                                                     |
+| Top    | F5          |               | Button  | open the item's context menu in the browser and piano roll, otherwise the focused window's menu |                                                     |
+| Top    | F6          |               | Button  | escape                                  |                                                     |
+| Top    | F7          |               | Button  | new (not implemented yet)               |                                                     |
+| Top    | F8          |               | Button  | toggle shift mode                       | illuminated when shift mode is active               |
 | Top    | F9          |               | Button  |                                         |                                                     |
 | Top    | F10         |               | Button  |                                         |                                                     |
 | Top    | F11         |               | Button  |                                         |                                                     |
@@ -116,14 +116,14 @@ These are all of the controls present on the hardware with their location, label
 | Top    | E14         |               | Encoder |                                         |                                                     |
 | Top    | E15         |               | Encoder |                                         |                                                     |
 | Top    | E16         |               | Encoder |                                         |                                                     |
-| Master | Volume      |               | Button  | hold + turn encoder to adjust master volume| illuminated while held                           |
-| Master | Swing       |               | Button  | hold + turn encoder to adjust master swing| illuminated while held                            |
-| Master | Tempo       |               | Button  | hold + turn encoder to adjust master tempo| illuminated while held                            |
+| Master | Volume      |               | Button  | toggle encoder override: the encoder adjusts master volume | illuminated while the override is on |
+| Master | Swing       |               | Button  | toggle encoder override: the encoder adjusts master swing | illuminated while the override is on |
+| Master | Tempo       |               | Button  | toggle encoder override: the encoder adjusts master tempo | illuminated while the override is on |
 | Master | Left        |               | Button  |                                         |                                                     |
 | Master | Right       |               | Button  |                                         |                                                     |
 | Master | Enter       |               | Button  | enter                                   | depends on focused screen                           |
 | Master | Note Repeat | Tap           | Button  |                                         |                                                     |
-| Master | Encoder     |               | Encoder | navigate up/down in current screen, press in to enter| depends on focused screen              |
+| Master | Encoder     |               | Encoder | turn: navigate the focused window (up/down, or left/right in the mixer) or an open menu; press: enter (browser, menus), open menu (mixer, playlist, piano roll), insert and open the channel's editor (channel rack) | Volume / Swing / Tempo overrides take priority for turning |
 | Groups | A -> H      |               | Button  | select pad group: the pads play 16 notes from group × 16 (A 0–15, B 16–31 … H 112–127; middle C is Group D pad 13). While the selected channel is FPC: Group E plays bank A and Group F bank B, in FPC's pad colours; empty pads and the other groups are dark and silent; selecting an FPC jumps to Group E | lit in the selected channel's colour, brightest when selected; starts on Group D; only E and F lit while FPC is selected |
 | Transport | Restart     | Loop          | Button  | stop, jump to the start and play        |                                                     |
 | Transport | Left        | Step Left     | Button  | move the song position to the previous snap grid line | uses FL's main snap (toolbar); set the Playlist and Piano Roll snap to "Main" so the playhead lands on the same grid |

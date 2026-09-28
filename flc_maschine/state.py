@@ -11,12 +11,13 @@ SHIFT = "shift"
 
 class ControllerState:
     def __init__(self):
-        # Latched by F5. While on, the shift binding layer takes priority over the base layer.
+        # Latched by F8. While on, the shift binding layer takes priority over the base layer.
         self.shift = False
         # Control id -> the handler that received its press, so the release goes to the same
         # handler even if the active layers changed while the control was held.
         self.held = {}
-        # What the master encoder controls while Volume / Swing / Tempo is held. Not used yet.
+        # The master encoder's override mode ("VOLUME", "SWING" or "TEMPO"), toggled by those
+        # buttons, or None. See handlers/encoder.py.
         self.encoder_mode = None
         # Pad group A-H (0-7) selected by the Group buttons. It picks the pads' notes (see
         # notes.py); Group D (3) holds middle C, so start there.
