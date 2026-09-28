@@ -16,12 +16,22 @@ FPT_Insert = 50
 FPT_Enter = 80
 FPT_Escape = 81
 FPT_Menu = 90
+FPT_Copy = 51
+FPT_Paste = 52
+FPT_Delete = 54
+FPT_F8 = 67
+FFNEP_DontPromptName = 1
 FPT_ItemMenu = 91
 FPT_TempoJog = 105
+FPT_WindowJog = 59
+FPT_PatternJog = 55
+FPT_SnapMode = 49
 FPT_ShuffleJog = 122
 FPT_CountDown = 115
 
 SONGLENGTH_ABSTICKS = 2
+
+SM_Pat = 0
 
 Snap_Line = 0
 Snap_Cell = 1

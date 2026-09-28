@@ -14,15 +14,17 @@ import midi
 
 from .handlers.common import unimplemented
 from .handlers import (
+    edit,
     encoder,
     groups,
     modes,
     pads,
+    pattern_controls,
     transport_controls,
     ui_commands,
     windows,
 )
-from .state import BASE, SHIFT
+from .state import BASE, NEW, SHIFT
 
 _base = {
     # Top
@@ -36,20 +38,23 @@ _base = {
     "F2": windows.toggle(midi.widPianoRoll),
     "F3": windows.toggle(midi.widPlaylist),
     "F4": windows.toggle(midi.widMixer),
-    "F5": ui_commands.send_for_focus(midi.FPT_Menu, {
-        midi.widBrowser: midi.FPT_ItemMenu,
-        midi.widPianoRoll: midi.FPT_ItemMenu,
-    }),
+    "F5": ui_commands.send_for_focus(
+        midi.FPT_Menu,
+        {
+            midi.widBrowser: midi.FPT_ItemMenu,
+            midi.widPianoRoll: midi.FPT_ItemMenu,
+        },
+    ),
     "F6": ui_commands.send(midi.FPT_Escape),
-    "F7": unimplemented("new"),
-    "F8": modes.toggle_shift,
+    "F7": modes.toggle(NEW),
+    "F8": modes.toggle(SHIFT),
     # Master
     "VOLUME": encoder.toggle_mode("VOLUME"),
     "SWING": encoder.toggle_mode("SWING"),
     "TEMPO": encoder.toggle_mode("TEMPO"),
-    "MASTER_LEFT": unimplemented(),
-    "MASTER_RIGHT": unimplemented(),
-    "ENTER": unimplemented("enter"),
+    "MASTER_LEFT": ui_commands.send(midi.FPT_Left),
+    "MASTER_RIGHT": ui_commands.send(midi.FPT_Right),
+    "ENTER": ui_commands.send(midi.FPT_Enter),
     "NOTE_REPEAT": unimplemented(),
     "ENCODER": encoder.turn,
     "ENCODER_PUSH": encoder.push,
@@ -57,15 +62,15 @@ _base = {
     "RESTART": transport_controls.restart,
     "STEP_LEFT": transport_controls.step_left,
     "STEP_RIGHT": transport_controls.step_right,
-    "GRID": unimplemented(),
+    "GRID": encoder.toggle_mode("GRID"),
     "PLAY": transport_controls.play,
     "REC": transport_controls.record,
     "ERASE": unimplemented(),
     # Pads area buttons
-    "SCENE": unimplemented(),
-    "PATTERN": unimplemented(),
-    "PAD_MODE": unimplemented(),
-    "NAVIGATE": unimplemented(),
+    "SCENE": transport_controls.toggle_song_mode,
+    "PATTERN": encoder.toggle_mode("PATTERN"),
+    "PAD_MODE": pads.toggle_fixed_velocity,
+    "NAVIGATE": encoder.toggle_mode("NAVIGATE"),
     "DUPLICATE": unimplemented(),
     "SELECT": unimplemented(),
     "SOLO": unimplemented(),
@@ -84,31 +89,54 @@ for _i in range(1, 17):
     _base["PAD_%d" % _i] = pads.play
 
 _shift = {
+    "BROWSE": ui_commands.send(midi.FPT_F8),  # plugin picker
     "ALL": unimplemented("save project"),
     "PLAY": transport_controls.metronome,
     "REC": transport_controls.count_in,
     # Pads become edit actions.
-    "PAD_1": unimplemented("undo"),
-    "PAD_2": unimplemented("redo"),
+    "PAD_1": edit.undo,
+    "PAD_2": edit.redo,
     "PAD_3": unimplemented("step undo"),
     "PAD_4": unimplemented("step redo"),
-    "PAD_5": unimplemented("quantize selection"),
-    "PAD_6": unimplemented("quantize selection 50%"),
+    "PAD_5": edit.quantize,
+    "PAD_6": unimplemented("quantize 50% (not possible: FL's quickQuantize has no strength setting)"),
     "PAD_7": unimplemented("nudge left"),
     "PAD_8": unimplemented("nudge right"),
-    "PAD_9": unimplemented("delete"),
+    "PAD_9": ui_commands.send(midi.FPT_Delete),
     "PAD_10": unimplemented("clear automation"),
-    "PAD_11": unimplemented("copy"),
-    "PAD_12": unimplemented("paste"),
+    "PAD_11": ui_commands.send(midi.FPT_Copy),
+    "PAD_12": ui_commands.send(midi.FPT_Paste),
     "PAD_13": unimplemented("decrease midi offset 1 step"),
     "PAD_14": unimplemented("increase midi offset 1 step"),
     "PAD_15": unimplemented("increase midi offset 12 steps"),
     "PAD_16": unimplemented("decrease midi offset 12 steps"),
 }
 
+# New mode is one-shot: each function turns New mode off after it runs.
+_new = {
+    # FL's Add menu (no API to add a channel): main menu, then Right x3.
+    "BROWSE": modes.once(
+        ui_commands.open_menu_then(midi.FPT_Menu, [midi.FPT_Right] * 3)
+    ),
+    "PATTERN": modes.once(pattern_controls.new_pattern),
+}
+
 LAYERS = {
     BASE: _base,
     SHIFT: _shift,
+    NEW: _new,
+}
+
+def _implemented(layer):
+    """The controls in a layer bound to a real function, not an unimplemented(...) placeholder."""
+    return frozenset(control_id for control_id, handler in layer.items() if not getattr(handler, "placeholder", False))
+
+
+# Controls that do something different in each mode. While a mode is on, the renderer lights
+# only these (and the mode's button).
+MODE_CONTROLS = {
+    SHIFT: _implemented(_shift),
+    NEW: _implemented(_new),
 }
 
 

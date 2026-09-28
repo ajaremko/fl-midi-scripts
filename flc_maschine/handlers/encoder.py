@@ -2,8 +2,10 @@
 Master encoder.
 
 Turning navigates whatever is focused: an open popup menu first, otherwise the focused window
-(up/down, or left/right in the mixer). Pushing does that window's action. Volume, Swing and Tempo
-toggle an override mode; while one is on, turning adjusts that master setting instead.
+(up/down, or left/right in the mixer). Pushing does that window's action. Volume, Swing, Tempo,
+Navigate, Pattern and Grid toggle an override mode; while one is on, turning adjusts master volume,
+swing or tempo, or jogs between windows, patterns or snap settings, instead.
+Entering Shift or New mode turns the override off (see modes.toggle).
 """
 
 import channels
@@ -33,12 +35,24 @@ def _tempo(delta):
     transport.globalTransport(midi.FPT_TempoJog, delta * TEMPO_STEP)
 
 
+def _jog(command):
+    """An override that sends one jog step per encoder message, in the turn's direction."""
+
+    def adjust(delta):
+        transport.globalTransport(command, -1 if delta < 0 else 1)
+
+    return adjust
+
+
 # Override mode -> what a turn adjusts. Mode names are the ids of the buttons that toggle them,
 # so the renderer can light the active one.
 MODES = {
     "VOLUME": _volume,
     "SWING": _swing,
     "TEMPO": _tempo,
+    "NAVIGATE": _jog(midi.FPT_WindowJog),  # between open windows
+    "PATTERN": _jog(midi.FPT_PatternJog),  # through patterns
+    "GRID": _jog(midi.FPT_SnapMode),  # through main snap settings
 }
 
 

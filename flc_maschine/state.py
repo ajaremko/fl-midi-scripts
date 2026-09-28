@@ -7,17 +7,20 @@ every event, so a handler never has to touch the LEDs itself.
 
 BASE = "base"
 SHIFT = "shift"
+NEW = "new"
 
 
 class ControllerState:
     def __init__(self):
-        # Latched by F8. While on, the shift binding layer takes priority over the base layer.
-        self.shift = False
+        # Global mode: SHIFT (toggled by F8), NEW (toggled by F7) or None. Only one is on at a time;
+        # its binding layer takes priority over the base layer.
+        self.mode = None
         # Control id -> the handler that received its press, so the release goes to the same
         # handler even if the active layers changed while the control was held.
         self.held = {}
-        # The master encoder's override mode ("VOLUME", "SWING" or "TEMPO"), toggled by those
-        # buttons, or None. See handlers/encoder.py.
+        # The master encoder's override mode ("VOLUME", "SWING", "TEMPO", "NAVIGATE", "PATTERN"
+        # or "GRID"), toggled by those buttons, or None. Entering Shift or New mode clears
+        # it. See handlers/encoder.py.
         self.encoder_mode = None
         # Pad group A-H (0-7) selected by the Group buttons. It picks the pads' notes (see
         # notes.py); Group D (3) holds middle C, so start there.
@@ -25,12 +28,18 @@ class ControllerState:
         # Pad id -> the note sent when it was pressed, so its aftertouch and note-off use the
         # same note even if the group changes while it is held.
         self.sounding = {}
+        # Toggled by Pad Mode. While on, pads play at pads.FIXED_VELOCITY however hard they're hit.
+        self.fixed_velocity = False
         # The FPC channel selected at the last render, or None. Selecting a different FPC jumps
         # the pads to Group E.
         self.fpc_channel = None
+        # FL commands (midi.FPT_*) waiting for a popup menu to open, and how many OnIdle ticks to
+        # keep waiting. See handlers/ui_commands.open_menu_then.
+        self.menu_commands = []
+        self.menu_wait = 0
 
     def active_layers(self):
         """Binding layers to search, highest priority first."""
-        if self.shift:
-            return [SHIFT, BASE]
+        if self.mode:
+            return [self.mode, BASE]
         return [BASE]

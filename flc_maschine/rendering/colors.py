@@ -9,6 +9,13 @@ MAX = 127
 OFF = (0, 0, 0)
 WHITE = (0, 0, MAX)
 
+# Fully saturated, full-brightness colours (hue 0-127 spans 360 degrees).
+RED = (0, MAX, MAX)
+ORANGE = (11, MAX, MAX)  # 30 degrees
+GREEN = (42, MAX, MAX)  # 120 degrees
+BLUE = (85, MAX, MAX)  # 240 degrees
+PURPLE = (99, MAX, MAX)  # 280 degrees
+
 
 def rgb_to_hsb(color):
     """Convert an FL Studio colour (0xRRGGBB, as channels.getChannelColor returns) to an HSB tuple."""

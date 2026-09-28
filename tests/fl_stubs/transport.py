@@ -3,14 +3,16 @@
 playing = False
 recording = False
 song_pos = 0  # absolute ticks
+loop_mode = 0  # 0: pattern mode, 1: song mode
 calls = []
 
 
 def reset():
-    global playing, recording, song_pos
+    global playing, recording, song_pos, loop_mode
     playing = False
     recording = False
     song_pos = 0
+    loop_mode = 0
     del calls[:]
 
 
@@ -48,3 +50,13 @@ def setSongPos(pos, mode=-1):
 
 def globalTransport(command, value, pmeflags=0, flags=0):
     calls.append(("globalTransport", command, value))
+
+
+def getLoopMode():
+    return loop_mode
+
+
+def setLoopMode():
+    global loop_mode
+    calls.append(("setLoopMode",))
+    loop_mode = 1 - loop_mode

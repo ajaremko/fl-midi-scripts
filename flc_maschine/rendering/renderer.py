@@ -12,7 +12,8 @@ and append it to RULES. Later rules override earlier ones.
 
 import midi
 
-from .. import controls, notes
+from .. import bindings, controls, notes
+from ..state import NEW, SHIFT
 from . import colors
 
 # Brightness of the pads and the selected Group button. Full brightness keeps dark channel
@@ -24,13 +25,18 @@ DIM_BRIGHTNESS = 24
 _PAD_IDS = [control.id for control in controls.PADS]
 
 
+def _channel_hsb(fl):
+    """The selected channel's colour as HSB, or white when no channel is selected."""
+    return colors.rgb_to_hsb(fl.channel_color) if fl.channel_color is not None else colors.WHITE
+
+
 def _channel_color(state, fl, frame):
     """Pads and Group buttons take the selected channel's colour; the selected group is brightest.
 
     While the selected channel is FPC, only the FPC groups light, and the pads take the colours
     of FPC's pads (empty pads stay dark).
     """
-    color = colors.rgb_to_hsb(fl.channel_color) if fl.channel_color is not None else colors.WHITE
+    color = _channel_hsb(fl)
     lit = colors.with_brightness(color, LIT_BRIGHTNESS)
     fpc_mode = fl.fpc_channel is not None
 
@@ -69,6 +75,11 @@ def _focused_window(state, fl, frame):
 def _transport(state, fl, frame):
     frame["PLAY"] = fl.playing
     frame["REC"] = fl.recording
+    frame["SCENE"] = fl.song_mode
+
+
+def _pad_mode(state, fl, frame):
+    frame["PAD_MODE"] = state.fixed_velocity
 
 
 def _encoder_mode(state, fl, frame):
@@ -77,16 +88,54 @@ def _encoder_mode(state, fl, frame):
         frame[state.encoder_mode] = True
 
 
-def _shift_indicator(state, fl, frame):
-    frame["F8"] = state.shift
+# The button that toggles each global mode, lit while that mode is on.
+MODE_BUTTONS = {SHIFT: "F8", NEW: "F7"}
+
+
+# The colour of each highlighted RGB control in a mode, grouped by function. Controls not listed
+# keep the channel colour.
+MODE_COLORS = {
+    SHIFT: {
+        "PAD_1": colors.ORANGE,  # undo
+        "PAD_2": colors.ORANGE,  # redo
+        "PAD_11": colors.BLUE,  # copy
+        "PAD_12": colors.BLUE,  # paste
+        "PAD_5": colors.GREEN,  # quantize
+        "PAD_9": colors.RED,  # clear (delete)
+    },
+}
+
+
+def _mode_highlight(state, fl, frame):
+    """While Shift or New mode is on, light only its button and the controls with a function in it.
+
+    Must stay the last rule: it replaces what the earlier rules showed until the mode turns off.
+    """
+    if not state.mode:
+        return
+    mode_controls = bindings.MODE_CONTROLS[state.mode]
+    mode_colors = MODE_COLORS.get(state.mode, {})
+    lit_hsb = colors.with_brightness(_channel_hsb(fl), LIT_BRIGHTNESS)
+    for control in controls.LED_CONTROLS:
+        shown = control.id == MODE_BUTTONS[state.mode] or control.id in mode_controls
+        if control.led == controls.HSB:
+            if not shown:
+                frame[control.id] = colors.OFF
+            elif control.id in mode_colors:
+                frame[control.id] = mode_colors[control.id]
+            elif frame.get(control.id, colors.OFF) == colors.OFF:
+                frame[control.id] = lit_hsb  # e.g. pads that are dark in FPC mode
+        else:
+            frame[control.id] = shown
 
 
 RULES = [
     _channel_color,
     _focused_window,
     _transport,
+    _pad_mode,
     _encoder_mode,
-    _shift_indicator,
+    _mode_highlight,
 ]
 
 

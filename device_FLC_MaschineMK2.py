@@ -1,25 +1,27 @@
 # name=FL Complete Maschine MK2
 
+from flc_maschine import diagnostics
 from flc_maschine.controller import MaschineMk2
 
 controller = MaschineMk2()
 
 
 def OnInit():
-    controller.on_init()
+    diagnostics.start()
+    diagnostics.run("OnInit", controller.on_init)
 
 
 def OnDeInit():
-    controller.on_deinit()
+    diagnostics.run("OnDeInit", controller.on_deinit)
 
 
 def OnMidiMsg(event):
-    controller.on_midi_msg(event)
+    diagnostics.run("OnMidiMsg", controller.on_midi_msg, event)
 
 
 def OnRefresh(flags):
-    controller.on_refresh(flags)
+    diagnostics.run("OnRefresh", controller.on_refresh, flags)
 
 
 def OnIdle():
-    controller.on_idle()
+    diagnostics.run("OnIdle", controller.on_idle)

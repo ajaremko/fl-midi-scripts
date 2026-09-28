@@ -14,10 +14,11 @@ def unimplemented(description=""):
         if ev.kind in (events.RELEASE, events.PRESSURE):
             return
         name = ev.control.id
-        if controller.state.shift:
-            name = "SHIFT+" + name
+        if controller.state.mode:
+            name = controller.state.mode.upper() + "+" + name
         log.info("unimplemented:", name, '"%s"' % description if description else "(no function assigned)")
 
+    handler.placeholder = True  # not a real function: modes don't highlight it
     return handler
 
 

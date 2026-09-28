@@ -31,6 +31,12 @@ def record(controller, ev):
 
 
 @on_press
+def toggle_song_mode(controller, ev):
+    """Switch between pattern mode and song (Playlist) mode."""
+    transport.setLoopMode()
+
+
+@on_press
 def metronome(controller, ev):
     transport.globalTransport(midi.FPT_Metronome, 1)
 

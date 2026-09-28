@@ -3,6 +3,7 @@
 selected = -1  # -1: no channel selected
 colors = {}  # channel index -> 0xRRGGBB
 focused_editors = []  # channel indexes passed to focusEditor
+quantized = []  # (index, startOnly) passed to quickQuantize
 
 
 def selectedChannel(canBeNone=0, offset=0, indexGlobal=0):
@@ -17,3 +18,7 @@ def getChannelColor(index):
 
 def focusEditor(index, useGlobalIndex=False):
     focused_editors.append(index)
+
+
+def quickQuantize(index, startOnly=1, useGlobalIndex=False):
+    quantized.append((index, startOnly))

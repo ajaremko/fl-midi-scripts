@@ -80,14 +80,14 @@ These are all of the controls present on the hardware with their location, label
 |--------|-------------|---------------|---------|-----------------------------------------|-----------------------------------------------------|
 | Top    | Control     | MIDI          | Button  |                                         |                                                     |
 | Top    | Step        | Instance      | Button  |                                         |                                                     |
-| Top    | Browse      |               | Button  | focus browser window; press again to hide                    | illuminated when browser window is focused          |
+| Top    | Browse      |               | Button  | focus browser window; press again to hide (shift mode: open the plugin picker; new mode: open FL's Add menu, to add a channel) | illuminated when browser window is focused          |
 | Top    | F1          |               | Button  | focus channels window; press again to hide                   | illuminated when channels window is focused         |
 | Top    | F2          |               | Button  | focus piano roll window; press again to hide                 | illuminated when piano roll window is focused       |
 | Top    | F3          |               | Button  | focus playlist window; press again to hide                   | illuminated when playlist window is focused         |
 | Top    | F4          |               | Button  | focus mixer window; press again to hide                      | illuminated when mixer window is focused            |
 | Top    | F5          |               | Button  | open the item's context menu in the browser and piano roll, otherwise the focused window's menu |                                                     |
 | Top    | F6          |               | Button  | escape                                  |                                                     |
-| Top    | F7          |               | Button  | new (not implemented yet)               |                                                     |
+| Top    | F7          |               | Button  | toggle new mode | illuminated while new mode is on |
 | Top    | F8          |               | Button  | toggle shift mode                       | illuminated when shift mode is active               |
 | Top    | F9          |               | Button  |                                         |                                                     |
 | Top    | F10         |               | Button  |                                         |                                                     |
@@ -119,39 +119,39 @@ These are all of the controls present on the hardware with their location, label
 | Master | Volume      |               | Button  | toggle encoder override: the encoder adjusts master volume | illuminated while the override is on |
 | Master | Swing       |               | Button  | toggle encoder override: the encoder adjusts master swing | illuminated while the override is on |
 | Master | Tempo       |               | Button  | toggle encoder override: the encoder adjusts master tempo | illuminated while the override is on |
-| Master | Left        |               | Button  |                                         |                                                     |
-| Master | Right       |               | Button  |                                         |                                                     |
-| Master | Enter       |               | Button  | enter                                   | depends on focused screen                           |
+| Master | Left        |               | Button  | left (like the left arrow key in the focused window) |                                                     |
+| Master | Right       |               | Button  | right (like the right arrow key in the focused window) |                                                     |
+| Master | Enter       |               | Button  | enter |                                                     |
 | Master | Note Repeat | Tap           | Button  |                                         |                                                     |
 | Master | Encoder     |               | Encoder | turn: navigate the focused window (up/down, or left/right in the mixer) or an open menu; press: enter (browser, menus), open menu (mixer, playlist, piano roll), insert and open the channel's editor (channel rack) | Volume / Swing / Tempo overrides take priority for turning |
 | Groups | A -> H      |               | Button  | select pad group: the pads play 16 notes from group × 16 (A 0–15, B 16–31 … H 112–127; middle C is Group D pad 13). While the selected channel is FPC: Group E plays bank A and Group F bank B, in FPC's pad colours; empty pads and the other groups are dark and silent; selecting an FPC jumps to Group E | lit in the selected channel's colour, brightest when selected; starts on Group D; only E and F lit while FPC is selected |
 | Transport | Restart     | Loop          | Button  | stop, jump to the start and play        |                                                     |
 | Transport | Left        | Step Left     | Button  | move the song position to the previous snap grid line | uses FL's main snap (toolbar); set the Playlist and Piano Roll snap to "Main" so the playhead lands on the same grid |
 | Transport | Right       | Step Right    | Button  | move the song position to the next snap grid line | uses FL's main snap (toolbar); set the Playlist and Piano Roll snap to "Main" so the playhead lands on the same grid |
-| Transport | Grid        | Rec Mode      | Button  |                                         |                                                     |
+| Transport | Grid        | Rec Mode      | Button  | toggle encoder override: the encoder steps the main snap setting | illuminated while the override is on |
 | Transport | Play        | Metro         | Button  | play / pause (shift mode: toggle metronome) | illuminated while playing                           |
 | Transport | Rec         | Count-In      | Button  | toggle recording (shift mode: toggle count-in) | illuminated while recording                         |
 | Transport | Erase       |               | Button  |                                         |                                                     |
-| Pads   | Scene       |               | Button  |                                         |                                                     |
-| Pads   | Pattern     |               | Button  |                                         |                                                     |
-| Pads   | Pad Mode    | Keyboard      | Button  |                                         |                                                     |
-| Pads   | Navigate    | Mix           | Button  |                                         |                                                     |
+| Pads   | Scene       |               | Button  | switch between pattern and song mode | illuminated in song mode |
+| Pads   | Pattern     |               | Button  | toggle encoder override: the encoder jogs through patterns (new mode: start a new pattern) | illuminated while the override is on |
+| Pads   | Pad Mode    | Keyboard      | Button  | toggle fixed velocity: pads play at full velocity | illuminated while fixed velocity is on |
+| Pads   | Navigate    | Mix           | Button  | toggle encoder override: the encoder jogs between open windows | illuminated while the override is on |
 | Pads   | Duplicate   |               | Button  |                                         |                                                     |
 | Pads   | Select      | Events        | Button  |                                         |                                                     |
 | Pads   | Solo        |               | Button  |                                         |                                                     |
 | Pads   | Mute        | Choke         | Button  |                                         |                                                     |
-| Pads   | Pad 1       | Undo          | Pad     | undo (shift mode)                       |                                                     |
-| Pads   | Pad 2       | Redo          | Pad     | redo (shift mode)                       |                                                     |
+| Pads   | Pad 1       | Undo          | Pad     | undo (shift mode)                       | lit orange in shift mode                            |
+| Pads   | Pad 2       | Redo          | Pad     | redo (shift mode)                       | lit orange in shift mode                            |
 | Pads   | Pad 3       | Step Undo     | Pad     |                                         |                                                     |
 | Pads   | Pad 4       | Step Redo     | Pad     |                                         |                                                     |
-| Pads   | Pad 5       | Quantize      | Pad     | quantize selection (shift mode)         |                                                     |
-| Pads   | Pad 6       | Quantize 50%  | Pad     | quantize selection 50% (shift mode)     |                                                     |
+| Pads   | Pad 5       | Quantize      | Pad     | quantize the selected channel (shift mode) | lit green in shift mode                             |
+| Pads   | Pad 6       | Quantize 50%  | Pad     | not available: FL's scripting API has no quantize strength |                                                     |
 | Pads   | Pad 7       | Nudge Left    | Pad     |                                         |                                                     |
 | Pads   | Pad 8       | Nudge Right   | Pad     |                                         |                                                     |
-| Pads   | Pad 9       | Clear         | Pad     | delete                                  |                                                     |
+| Pads   | Pad 9       | Clear         | Pad     | delete (shift mode)                     | lit red in shift mode                               |
 | Pads   | Pad 10      | Clear Auto    | Pad     |                                         |                                                     |
-| Pads   | Pad 11      | Copy          | Pad     | copy (shift mode)                       |                                                     |
-| Pads   | Pad 12      | Paste         | Pad     | paste (shift mode)                      |                                                     |
+| Pads   | Pad 11      | Copy          | Pad     | copy (shift mode)                       | lit blue in shift mode                              |
+| Pads   | Pad 12      | Paste         | Pad     | paste (shift mode)                      | lit blue in shift mode                              |
 | Pads   | Pad 13      | Semitone Down | Pad     | decrease midi offset 1 step (shift mode)|                                                     |
 | Pads   | Pad 14      | Semitone Up   | Pad     | increase midi offset 1 step (shift mode)|                                                     |
 | Pads   | Pad 15      | Octave Up     | Pad     | increase midi offset 12 steps (shift mode)|                                                   |
@@ -162,6 +162,15 @@ These are all of the controls present on the hardware with their location, label
 - new mode w buttons for adding new patterns/channels, etc
 - pads light up on midi out 
 - encoder controls active screen + overrides
+
+### Shift and New Modes
+
+F8 toggles shift mode and F7 toggles new mode. Only one of them is on at a time: turning one on turns the other off. The mode's button stays lit while it is on.
+
+- **Shift mode** gives controls their "(shift mode)" function above, such as Browse (plugin picker), Play (metro), Rec (count-in) and the pads (undo, redo, quantize, clear, copy, paste, …). It stays on until F8 is pressed again. In shift mode the pads never play notes.
+- **New mode** gives controls their "(new mode)" function: Browse opens FL's Add menu to add a channel, and Pattern starts a new pattern. New mode is one-shot: using a new-mode function turns it off. Controls without a new-mode function keep their normal function, and new mode stays on.
+
+While either mode is on, only its button and the controls with a *working* function in that mode are lit; functions that aren't written yet (or can't be done from an FL script) stay unlit. In shift mode the pads light in colours by function: undo/redo orange, copy/paste blue, quantize green, clear red. Every other button goes dim, and the pads and Group buttons without a function go dark. The usual state lights (the focused window, Play/Rec) come back when the mode is turned off. Entering either mode also turns off any active encoder override.
 
 ## Akai Fire
 

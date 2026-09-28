@@ -15,13 +15,14 @@ WINDOWS = (midi.widMixer, midi.widChannelRack, midi.widPlaylist, midi.widPianoRo
 
 
 class FlSnapshot:
-    __slots__ = ("focused_window", "playing", "recording", "channel_color", "fpc_channel", "fpc_banks")
+    __slots__ = ("focused_window", "playing", "recording", "song_mode", "channel_color", "fpc_channel", "fpc_banks")
 
-    def __init__(self, focused_window=None, playing=False, recording=False, channel_color=None,
-                 fpc_channel=None, fpc_banks=None):
+    def __init__(self, focused_window=None, playing=False, recording=False, song_mode=False,
+                 channel_color=None, fpc_channel=None, fpc_banks=None):
         self.focused_window = focused_window  # one of WINDOWS, or None
         self.playing = playing
         self.recording = recording
+        self.song_mode = song_mode  # True in song (Playlist) mode, False in pattern mode
         self.channel_color = channel_color  # selected channel's colour as 0xRRGGBB, or None
         self.fpc_channel = fpc_channel  # selected channel if it is an FPC, else None
         self.fpc_banks = fpc_banks  # fpc.read_banks() of that FPC, else None
@@ -39,6 +40,7 @@ class FlSnapshot:
             focused_window=focused,
             playing=bool(transport.isPlaying()),
             recording=bool(transport.isRecording()),
+            song_mode=transport.getLoopMode() != midi.SM_Pat,
             channel_color=channels.getChannelColor(channel) & 0xFFFFFF if channel >= 0 else None,
             fpc_channel=fpc_channel,
             fpc_banks=fpc.read_banks(fpc_channel) if fpc_channel is not None else None,
