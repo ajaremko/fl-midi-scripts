@@ -2,13 +2,15 @@
 
 selected = -1  # -1: no channel selected
 colors = {}  # channel index -> 0xRRGGBB
-focused_editors = []  # channel indexes passed to focusEditor
+shown_forms = []  # (index, state) passed to showCSForm
 quantized = []  # (index, startOnly) passed to quickQuantize
 pitch = {}  # channel index -> normalised pitch, -1..1 of its range (default 0)
 pitch_range = {}  # channel index -> pitch range in semitones (default 2, FL's default)
 pitch_calls = []  # (index, value, pitchUnit) passed to setChannelPitch
 muted = set()  # muted channel indexes
 soloed = None  # the soloed channel index, or None
+count = 8  # channelCount()
+selection = set()  # channel indexes selected by select/selectOneChannel (separate from `selected`)
 
 
 def selectedChannel(canBeNone=0, offset=0, indexGlobal=0):
@@ -19,10 +21,6 @@ def selectedChannel(canBeNone=0, offset=0, indexGlobal=0):
 
 def getChannelColor(index):
     return colors.get(index, 0)
-
-
-def focusEditor(index, useGlobalIndex=False):
-    focused_editors.append(index)
 
 
 def quickQuantize(index, startOnly=1, useGlobalIndex=False):
@@ -65,3 +63,27 @@ def soloChannel(index, useGlobalIndex=False):
 
 def isChannelSolo(index, useGlobalIndex=False):
     return 1 if soloed == index else 0
+
+
+def channelCount(globalCount=0):
+    return count
+
+
+def selectOneChannel(index, useGlobalIndex=False):
+    selection.clear()
+    selection.add(index)
+
+
+def selectChannel(index, value=-1, useGlobalIndex=False):
+    if value == 1 or (value == -1 and index not in selection):
+        selection.add(index)
+    else:
+        selection.discard(index)
+
+
+def isChannelSelected(index, useGlobalIndex=False):
+    return 1 if index in selection else 0
+
+
+def showCSForm(index, state=1, useGlobalIndex=False):
+    shown_forms.append((index, state))

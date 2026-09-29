@@ -6,15 +6,20 @@ Turning navigates whatever is focused: an open popup menu first, otherwise the f
 Navigate, Pattern and Grid toggle an override mode; while one is on, turning adjusts master volume,
 swing or tempo, or jogs between windows, patterns or snap settings, instead.
 Entering Shift or New mode turns the override off (see modes.toggle).
+
+Push and turn: turning while the encoder is pushed in selects a range of channels (Channel Rack) or
+mixer tracks (Mixer); see selection.py. Elsewhere it turns as usual. The push's own action runs on
+release, and only if the encoder wasn't turned while held, so a drag never also clicks. The
+template's Push button must be in Gate mode for the release to arrive.
 """
 
-import channels
 import midi
 import mixer
 import transport
 import ui
 
 from .. import events
+from . import selection
 from .common import on_press
 
 VOLUME_STEP = 0.05  # master volume, 0-1, per encoder step
@@ -85,16 +90,11 @@ def _command(command):
     return send
 
 
-def _open_channel():
-    transport.globalTransport(midi.FPT_Insert, 1)
-    channels.focusEditor(channels.selectedChannel())
-
-
 # Push: what pressing the encoder does.
 MENU_PUSH = _command(midi.FPT_Enter)
 PUSH = {
     midi.widMixer: _command(midi.FPT_Menu),
-    midi.widChannelRack: _open_channel,
+    midi.widChannelRack: _command(midi.FPT_ItemMenu),  # the selected channel's right-click menu
     midi.widPlaylist: _command(midi.FPT_Menu),
     midi.widPianoRoll: _command(midi.FPT_Menu),
     midi.widBrowser: _command(midi.FPT_Enter),
@@ -123,15 +123,35 @@ def _navigate(delta):
 def turn(controller, ev):
     if ev.kind != events.TURN:
         return
-    adjust = MODES.get(controller.state.encoder_mode)
+    state = controller.state
+    if state.push_held:
+        state.push_turned = True
+        if selection.drag(state, ev.delta):  # takes priority over overrides and navigation
+            return
+    adjust = MODES.get(state.encoder_mode)
     if adjust is None:
         _navigate(ev.delta)
     else:
         adjust(ev.delta)
 
 
-@on_press
 def push(controller, ev):
+    """Press: remember the encoder is held. Release: click (_click) unless it turned while held."""
+    state = controller.state
+    if ev.is_press:
+        state.push_held = True
+        state.push_turned = False
+        state.drag_window = None
+    elif ev.is_release:
+        turned = state.push_turned
+        state.push_held = False
+        state.push_turned = False
+        state.drag_window = None
+        if not turned:
+            _click()
+
+
+def _click():
     if ui.isInPopupMenu():
         MENU_PUSH()
         return

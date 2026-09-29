@@ -55,7 +55,7 @@ _base = {
     "TEMPO": encoder.toggle_mode("TEMPO"),
     "MASTER_LEFT": ui_commands.send(midi.FPT_Left),
     "MASTER_RIGHT": ui_commands.send(midi.FPT_Right),
-    "ENTER": ui_commands.send(midi.FPT_Enter),
+    "ENTER": ui_commands.enter,
     "NOTE_REPEAT": unimplemented(),
     "ENCODER": encoder.turn,
     "ENCODER_PUSH": encoder.push,

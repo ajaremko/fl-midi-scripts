@@ -88,13 +88,15 @@ class ScriptTestCase(unittest.TestCase):
         ui.snap_mode = midi.Snap_None
         ui.in_popup_menu = False
         ui.hints = []
-        channels.focused_editors = []
+        channels.shown_forms = []
         channels.quantized = []
         channels.pitch = {}
         channels.pitch_range = {}
         channels.pitch_calls = []
         channels.muted = set()
         channels.soloed = None
+        channels.count = 8
+        channels.selection = set()
         transport.reset()
         del patterns.calls[:]
         patterns.current = 1
@@ -103,6 +105,9 @@ class ScriptTestCase(unittest.TestCase):
         general.safe = True
         diagnostics.ENABLED = False
         mixer.track_volume = {0: 0.8}
+        mixer.track_number = 0
+        mixer.track_count = 10
+        mixer.selected_tracks = set()
         general.ppq = 96
         general.ppb = 384
         self.log = io.StringIO()
@@ -185,9 +190,9 @@ class ScaffoldTest(ScriptTestCase):
 
     def test_pressed_button_led_is_reasserted(self):
         # A toggle button lights itself on the hardware, so the script resends "off".
-        select = controls.BY_ID["SELECT"].number
-        self.send(cc(select))
-        self.assertEqual([unpack(m) for m in device.sent], [(midi.MIDI_CONTROLCHANGE, select, 0)])
+        erase = controls.BY_ID["ERASE"].number
+        self.send(cc(erase))
+        self.assertEqual([unpack(m) for m in device.sent], [(midi.MIDI_CONTROLCHANGE, erase, 0)])
 
     def test_f5_and_f6_send_menu_and_escape(self):
         for button, command in (("F5", midi.FPT_Menu), ("F6", midi.FPT_Escape)):
@@ -298,6 +303,32 @@ class ScaffoldTest(ScriptTestCase):
                 self.send(cc(controls.BY_ID[button].number))
                 self.assertEqual(transport.calls, [("globalTransport", command, 1)])
 
+    def test_enter_opens_the_selected_channel_plugin_in_the_channel_rack(self):
+        ui.focused = midi.widChannelRack
+        channels.selected = 2
+        del transport.calls[:]
+        self.send(cc(controls.BY_ID["ENTER"].number))
+        self.assertEqual(channels.shown_forms, [(2, 1)])
+        self.assertEqual(transport.calls, [])
+
+    def test_enter_in_the_channel_rack_without_a_selection_does_nothing(self):
+        ui.focused = midi.widChannelRack
+        channels.selected = -1
+        del transport.calls[:]
+        self.send(cc(controls.BY_ID["ENTER"].number))
+        self.assertEqual(channels.shown_forms, [])
+        self.assertEqual(transport.calls, [])
+
+    def test_enter_picks_a_popup_menu_item_and_works_elsewhere(self):
+        for focused, in_menu in ((midi.widChannelRack, True), (midi.widPlaylist, False)):
+            with self.subTest(focused=focused, in_menu=in_menu):
+                ui.focused = focused
+                ui.in_popup_menu = in_menu
+                del transport.calls[:]
+                self.send(cc(controls.BY_ID["ENTER"].number))
+                self.assertEqual(transport.calls, [("globalTransport", midi.FPT_Enter, 1)])
+                self.assertEqual(channels.shown_forms, [])
+
     def test_unbound_knob_passes_through(self):
         self.assertFalse(self.send(cc(controls.BY_ID["E1"].number, 64)).handled)
 
@@ -394,6 +425,99 @@ class SoloMuteTest(ScriptTestCase):
         channels.soloed = None
         self.refresh()
         self.assertFalse(self.led("SOLO"))
+
+
+class EncoderDragSelectTest(ScriptTestCase):
+    def hold(self):
+        self.send(cc(controls.BY_ID["ENCODER_PUSH"].number, 127))
+
+    def release(self):
+        self.send(cc(controls.BY_ID["ENCODER_PUSH"].number, 0))
+
+    def turn(self, delta, times=1):
+        for _ in range(times):
+            self.send(cc(controls.BY_ID["ENCODER"].number, delta & 0x7F))
+
+    def test_channel_rack_drag_grows_and_shrinks_from_the_selected_channel(self):
+        ui.focused = midi.widChannelRack
+        channels.selected = 2
+        channels.selection = {2, 6}
+        self.hold()
+        del transport.calls[:]
+        self.turn(+1, times=2)
+        self.assertEqual(channels.selection, {2, 3, 4})
+        self.assertEqual(ui.hints[-1], "Select: channels 3-5")
+        self.turn(-1, times=3)  # back past the anchor
+        self.assertEqual(channels.selection, {1, 2})
+        self.assertEqual(ui.hints[-1], "Select: channels 2-3")
+        self.release()
+        self.assertEqual(transport.calls, [])  # no navigation, and no click on release
+        self.assertEqual(channels.selection, {1, 2})
+
+    def test_channel_range_stops_at_the_first_and_last_channels(self):
+        ui.focused = midi.widChannelRack
+        channels.selected = 1
+        self.hold()
+        self.turn(-1, times=3)
+        self.assertEqual(channels.selection, {0, 1})
+        self.turn(+1, times=20)
+        self.assertEqual(channels.selection, set(range(1, channels.count)))
+
+    def test_mixer_drag_selects_tracks(self):
+        ui.focused = midi.widMixer
+        mixer.track_number = 3
+        mixer.selected_tracks = {3, 7}
+        self.hold()
+        self.turn(+1, times=2)
+        self.assertEqual(mixer.selected_tracks, {3, 4, 5})
+        self.assertEqual(ui.hints[-1], "Select: mixer tracks 3-5")
+        self.turn(-1, times=3)
+        self.assertEqual(mixer.selected_tracks, {2, 3})
+        self.turn(+1, times=20)  # stops before the "Current" track
+        self.assertEqual(mixer.selected_tracks, set(range(3, mixer.track_count - 1)))
+        self.release()
+        self.assertNotIn(("globalTransport", midi.FPT_Menu, 1), transport.calls)
+
+    def test_click_acts_on_release(self):
+        ui.focused = midi.widChannelRack
+        del transport.calls[:]
+        self.hold()
+        self.assertEqual(transport.calls, [])
+        self.release()
+        self.assertEqual(transport.calls, [("globalTransport", midi.FPT_ItemMenu, 1)])
+
+    def test_hold_and_turn_elsewhere_navigates_without_clicking(self):
+        ui.focused = midi.widPlaylist
+        self.hold()
+        del transport.calls[:]
+        self.turn(+1)
+        self.release()
+        self.assertEqual(transport.calls, [("globalTransport", midi.FPT_Down, 1)])
+
+    def test_open_popup_menu_is_navigated_not_selected(self):
+        ui.focused = midi.widChannelRack
+        ui.in_popup_menu = True
+        channels.selection = {0}
+        self.hold()
+        del transport.calls[:]
+        self.turn(+1)
+        self.assertEqual(transport.calls, [("globalTransport", midi.FPT_Down, 1)])
+        self.assertEqual(channels.selection, {0})
+
+    def test_drag_takes_priority_over_an_override(self):
+        ui.focused = midi.widChannelRack
+        self.send(cc(controls.BY_ID["VOLUME"].number))
+        self.hold()
+        self.turn(+1)
+        self.assertEqual(channels.selection, {0, 1})
+        self.assertEqual(mixer.track_volume[0], 0.8)
+
+    def test_plain_turn_still_navigates(self):
+        ui.focused = midi.widChannelRack
+        del transport.calls[:]
+        self.turn(+1)
+        self.assertEqual(transport.calls, [("globalTransport", midi.FPT_Down, 1)])
+        self.assertEqual(channels.selection, set())
 
 
 class WindowButtonsTest(ScriptTestCase):
@@ -531,6 +655,12 @@ class EncoderTest(ScriptTestCase):
         del transport.calls[:]
         return self.send(cc(controls.BY_ID["ENCODER"].number, delta & 0x7F))  # two's complement
 
+    def click(self):
+        """Push and release the encoder (Gate mode: 127, then 0). The push acts on release."""
+        del transport.calls[:]
+        self.send(cc(controls.BY_ID["ENCODER_PUSH"].number, 127))
+        self.send(cc(controls.BY_ID["ENCODER_PUSH"].number, 0))
+
     def lit_override_buttons(self):
         return [b for b in ("VOLUME", "SWING", "TEMPO") if self.controller.leds._sent[b]]
 
@@ -633,7 +763,7 @@ class EncoderTest(ScriptTestCase):
         ui.in_popup_menu = True
         self.turn(1)
         self.assertEqual(self.jogs(), [midi.FPT_Down])
-        self.press("ENCODER_PUSH")
+        self.click()
         self.assertEqual(self.jogs(), [midi.FPT_Enter])
 
     def test_override_takes_priority_over_navigation(self):
@@ -653,20 +783,17 @@ class EncoderTest(ScriptTestCase):
         for window, expected in cases:
             with self.subTest(window=window):
                 ui.focused = window
-                self.press("ENCODER_PUSH")
+                self.click()
                 self.assertEqual(self.jogs(), expected)
 
-    def test_push_in_channel_rack_opens_the_selected_channel(self):
+    def test_push_in_channel_rack_opens_the_item_menu(self):
         ui.focused = midi.widChannelRack
-        channels.selected = 2
-        self.press("ENCODER_PUSH")
-        self.assertEqual(self.jogs(), [midi.FPT_Insert])
-        self.assertEqual(channels.focused_editors, [2])
+        self.click()
+        self.assertEqual(self.jogs(), [midi.FPT_ItemMenu])
 
     def test_push_with_nothing_focused_does_nothing(self):
-        self.press("ENCODER_PUSH")
+        self.click()
         self.assertEqual(transport.calls, [])
-        self.assertEqual(channels.focused_editors, [])
 
 
 class ShiftModeTest(ScriptTestCase):
@@ -921,11 +1048,11 @@ class RenderSchedulingTest(ScriptTestCase):
         self.assertEqual(len(renders), 1)
 
     def test_pressed_led_is_reasserted_on_the_next_idle(self):
-        script.OnMidiMsg(cc(controls.BY_ID["SELECT"].number))
-        self.assertIn("SELECT", self.controller.invalidated)
+        script.OnMidiMsg(cc(controls.BY_ID["ERASE"].number))
+        self.assertIn("ERASE", self.controller.invalidated)
         device.reset()
         script.OnIdle()
-        self.assertIn((midi.MIDI_CONTROLCHANGE, controls.BY_ID["SELECT"].number, 0), [unpack(m) for m in device.sent])
+        self.assertIn((midi.MIDI_CONTROLCHANGE, controls.BY_ID["ERASE"].number, 0), [unpack(m) for m in device.sent])
         self.assertEqual(self.controller.invalidated, set())
 
     def test_pads_use_the_last_snapshot_in_fpc_mode(self):

@@ -17,3 +17,34 @@ def getTrackVolume(index, mode=0):
 
 def setTrackVolume(index, volume, pickupMode=0):
     track_volume[index] = volume
+
+
+track_number = 0  # trackNumber(): the current track
+track_count = 10  # trackCount(): Master, inserts 1-8 and the "Current" utility track
+selected_tracks = set()
+
+
+def trackNumber():
+    return track_number
+
+
+def trackCount():
+    return track_count
+
+
+def setActiveTrack(index):
+    global track_number
+    track_number = index
+    selected_tracks.clear()
+    selected_tracks.add(index)
+
+
+def selectTrack(index):
+    if index in selected_tracks:
+        selected_tracks.discard(index)
+    else:
+        selected_tracks.add(index)
+
+
+def isTrackSelected(index):
+    return 1 if index in selected_tracks else 0

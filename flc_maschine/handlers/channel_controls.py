@@ -22,3 +22,4 @@ def mute(controller, ev):
     channel = channels.selectedChannel(1)
     if channel >= 0:
         channels.muteChannel(channel)
+

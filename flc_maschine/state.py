@@ -22,6 +22,14 @@ class ControllerState:
         # or "GRID"), toggled by those buttons, or None. Entering Shift or New mode clears
         # it. See handlers/encoder.py.
         self.encoder_mode = None
+        # Encoder push: held down, and turned while held (a turn cancels the click on release).
+        self.push_held = False
+        self.push_turned = False
+        # A push-and-turn selection drag (handlers/selection.py): the window it selects in (None
+        # when no drag is running), the index the range started at, and its moving end.
+        self.drag_window = None
+        self.drag_anchor = 0
+        self.drag_end = 0
         # Pad group A-H (0-7) selected by the Group buttons. It picks the pads' notes (see
         # notes.py); Group D (3) holds middle C, so start there.
         self.pad_group = 3

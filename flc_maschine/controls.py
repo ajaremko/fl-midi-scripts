@@ -80,7 +80,7 @@ def _build():
         _button("ENTER", "Enter", "Master", 100, TRIGGER, "Enter"),
         _button("NOTE_REPEAT", "Note Repeat", "Master", 111, TOGGLE, "NoteRep", "Tap"),
         Control("ENCODER", "Encoder", "Master", ENCODER, CC, 101, COMP, None, ("controls", None, "Dial")),
-        _button("ENCODER_PUSH", "Encoder Push", "Master", 102, TOGGLE, "Push"),
+        _button("ENCODER_PUSH", "Encoder Push", "Master", 102, GATE, "Push"),
         # Transport
         _button("RESTART", "Restart", "Transport", 104, TOGGLE, "Restart", "Loop"),
         _button("STEP_LEFT", "Left", "Transport", 105, TRIGGER, "StepL", "Step Left"),

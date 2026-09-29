@@ -3,6 +3,8 @@ Buttons that press a single FL Studio key or command, such as Menu (F5) and Esc 
 choosing the command by the focused window, or that open a menu and then step through it.
 """
 
+import channels
+import midi
 import transport
 import ui
 
@@ -19,6 +21,22 @@ def send(command, value=1):
         transport.globalTransport(command, value)
 
     return handler
+
+
+@on_press
+def enter(controller, ev):
+    """Enter. In the Channel Rack it opens the selected channel's plugin window (channel settings
+    for samplers) instead, since FPT_Enter there leaves the rack; an open popup menu still gets
+    FPT_Enter to pick its item.
+
+    Uses showCSForm: channels.showEditor did nothing in FL 2025, and Arturia's KeyLab mk3 script
+    also replaced showEditor with showCSForm for this."""
+    if not ui.isInPopupMenu() and ui.getFocused(midi.widChannelRack):
+        channel = channels.selectedChannel(1)  # -1 when no channel is selected
+        if channel >= 0:
+            channels.showCSForm(channel, 1)  # 1: open (-1 would toggle)
+        return
+    transport.globalTransport(midi.FPT_Enter, 1)
 
 
 def send_for_focus(default, by_window):
