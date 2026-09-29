@@ -25,6 +25,7 @@ README's "MK2 bridge" section.
 
 import argparse
 import logging
+import math
 import sys
 import threading
 import time
@@ -56,6 +57,16 @@ CLOCK_TIMEOUT = 0.25  # seconds without a clock before repeats fall back to the 
 # any later press is held back to the next grid line, so the first note is on the grid too.
 GRACE_FRACTION = 0.125  # of the repeat interval...
 GRACE_MAX = 0.030  # ...but at most this many seconds
+
+# FL sends its clock once per audio buffer, so ticks arrive in clumps (up to a buffer late: about
+# 10 ms at FL's default 512 samples). A delay-locked loop smooths them: each tick corrects a model
+# of when ticks should arrive, and repeats play on the model's times, from the timer thread.
+LOCK_TICKS = 24  # ticks (a beat) of fast locking after the clock starts
+ALPHA_LOCK = 0.2  # phase correction per tick while locking...
+ALPHA = 0.05  # ...and after; the tempo correction is ALPHA ** 2 / 4
+SPC_LIMIT = 0.10  # the smoothed tick length stays within this fraction of the tempo's
+MAX_AHEAD = 3  # ticks the model may run ahead of the last tick received (so a late tick doesn't delay a line)
+TIMING_EVERY = 5.0  # seconds between --timing reports
 
 # Pad pressure (poly aftertouch) is thinned before it goes to FL: the MK2 sends it densely for every
 # held pad, and a burst of it while FL is busy (e.g. starting to record) overflows FL's MIDI input.
@@ -110,6 +121,33 @@ class _Pad:
         self.off_at = None
 
 
+class _TimingStats:
+    """For --timing: the worst raw tick error and the worst smoothed correction in a period."""
+
+    def __init__(self):
+        self.started = None
+        self.ticks = 0
+        self.max_error = 0.0
+        self.max_correction = 0.0
+
+    def add(self, error, correction):
+        self.ticks += 1
+        self.max_error = max(self.max_error, abs(error))
+        self.max_correction = max(self.max_correction, abs(correction))
+
+    def report(self, now, bpm):
+        if self.started is None:
+            self.started = now
+            return None
+        if now - self.started < TIMING_EVERY or not self.ticks:
+            return None
+        line = "clock: %.1f BPM, tick jitter +/-%.1f ms, smoothed +/-%.1f ms (%d ticks)" % (
+            bpm, self.max_error * 1000, self.max_correction * 1000, self.ticks)
+        self.__init__()
+        self.started = now
+        return line
+
+
 class NoteRepeater:
     """Note Repeat, as pure logic: no ports, threads or clock of its own, so it can be tested.
 
@@ -120,6 +158,11 @@ class NoteRepeater:
     A pad never sounds twice within MIN_SPACING of an interval, and never twice at the same clock
     position. FL's loop wrap otherwise hits twice at once: the clock at the end of the bar is on a
     grid line, and so is song position 0 a few milliseconds later.
+
+    FL's clock ticks don't play anything directly: FL sends them once per audio buffer, so they
+    arrive in clumps. clock() only corrects a smoothed model of the clock (a delay-locked loop:
+    anchor_pos/anchor_time and spc, the seconds per tick), and tick(), from the timer thread,
+    advances a virtual position along the model and steps each position it crosses (_step).
 
     While FL's clock runs, the first note is quantized too. A press within the grace window after
     the latest grid line (GRACE_FRACTION of an interval, at most GRACE_MAX) plays at once and counts
@@ -138,8 +181,15 @@ class NoteRepeater:
         self.pads = {}  # (channel, note) -> _Pad
         self.position = 0  # clock position of the next clock, from FL's start and song position
         self.last_clock = None  # time the last clock arrived
-        self.line_pos = None  # clock position and time of the latest grid line of the current rate
-        self.line_time = None
+        # The smoothed clock: tick anchor_pos is predicted at anchor_time, and each tick lasts spc.
+        self.locked = False
+        self.anchor_pos = 0
+        self.anchor_time = 0.0
+        self.spc = self._tempo_spc()
+        self._lock_ticks = 0
+        self._jumped = False  # a song-position jump since the last tick (see clock)
+        self.vpos = None  # the last position stepped along the model
+        self._timing = _TimingStats()
         self.stopped = False  # FL sent stop (and no start or continue since)
         self.playing = False  # FL is playing, as the script reports it (CC 4)
         self._play_seen = None  # when a repeat was first seen during this play
@@ -164,6 +214,7 @@ class NoteRepeater:
             bpm = ((self._tempo_msb << 7) | value) / 10.0
             if bpm > 0:
                 self.bpm = bpm
+                self.spc = self._tempo_spc()  # follow a tempo change at once
         elif control == CC_PLAYING:
             self.playing = value >= 64
             if not self.playing:
@@ -192,11 +243,15 @@ class NoteRepeater:
         if not self.enabled:
             return True
         key = (channel, note)
-        if self.clocked(now):
-            if self.line_time is not None and now - self.line_time <= self.grace():
+        if self.clocked(now) and self.locked:
+            vp = self._virtual(now) + 1e-6
+            if not self.pads or self.vpos is None or self.vpos < math.floor(vp) - 1:
+                self.vpos = self._capped(math.floor(vp))  # nothing was stepping: start from here
+            line = math.floor(vp / self.rate) * self.rate
+            if (vp - line) * self.spc <= self.grace():
                 pad = _Pad(channel, note, velocity, now)  # just after a line: it counts as that line
-                pad.last_hit_pos = self.line_pos
-                pad.off_pos = self.line_pos + self._gate_clocks()
+                pad.last_hit_pos = line
+                pad.off_pos = line + self._gate_clocks()
                 self.pads[key] = pad
                 return True
             self.pads[key] = _Pad(channel, note, velocity, now, pending_first=True)
@@ -244,36 +299,108 @@ class NoteRepeater:
 
     def start(self):
         self.stopped = False
+        self._unlock()
         self._jump(0)
 
     def cont(self):
         self.stopped = False
+        self._unlock()  # relock on the next tick
 
     def stop(self):
         self.stopped = True
+        self._unlock()
 
     def songpos(self, value):
         self._jump(value * CLOCKS_PER_SONGPOS)
 
+    def _unlock(self):
+        self.locked = False
+        self.vpos = None
+
     def _jump(self, position):
-        # A new song position (start, or a jump or loop). A sounding note keeps the rest of its
-        # gate. The last hit's position is kept, so a position re-sent where a pad just hit can't
-        # hit again, and the time spacing covers a loop wrap.
+        # A new song position (start, or a jump or loop). While locked, the model stays continuous
+        # in time: the target position is due when the next tick was, so smoothing carries across
+        # a loop point. A sounding note keeps the rest of its gate. The last hit's position is
+        # kept, so a position re-sent where a pad just hit can't hit again, and the time spacing
+        # covers a loop wrap.
+        stepped = self.vpos + 1 if self.vpos is not None else self.position
         for pad in self.pads.values():
             if pad.off_pos is not None:
-                pad.off_pos = position + max(0, pad.off_pos - self.position)
+                pad.off_pos = position + max(0, pad.off_pos - stepped)
+        if self.locked:
+            self.anchor_time = self._predicted(self.position)
+            self.anchor_pos = position
+            self.vpos = position - 1
+            self._jumped = True
         self.position = position
 
     def clock(self, now):
+        """A tick from FL: correct the smoothed clock. Nothing plays here; tick() steps the model."""
         self.last_clock = now
         if self.stopped:
             return
-        pos = self.position
+        k = self.position
         self.position += 1
+        if not self.locked:
+            self.locked = True
+            self._lock_ticks = 0
+            self.spc = self._tempo_spc()
+            self.anchor_pos, self.anchor_time = k, now
+            if self.vpos is None:
+                self.vpos = k - 1
+            return
+        predicted = self._predicted(k)
+        error = now - predicted
+        if self._jumped:
+            self._jumped = False
+            if abs(error) > 0.5 * self.spc:
+                # The jump wasn't continuous in time (e.g. FL sent an extra tick at the loop
+                # point): take this tick's time rather than slowly correcting a whole tick.
+                # Ordinary jitter stays within half a buffer of the model, well inside this.
+                self.anchor_pos, self.anchor_time = k, now
+                return
+        alpha = ALPHA_LOCK if self._lock_ticks < LOCK_TICKS else ALPHA
+        self._lock_ticks += 1
+        correction = alpha * error
+        self.anchor_pos, self.anchor_time = k, predicted + correction
+        base = self._tempo_spc()
+        self.spc = max(base * (1 - SPC_LIMIT), min(base * (1 + SPC_LIMIT), self.spc + alpha * alpha / 4 * error))
+        # The smoothed figure leaves out the first beat of fast locking, which isn't typical.
+        self._timing.add(error, correction if self._lock_ticks > LOCK_TICKS else 0.0)
+
+    def _tempo_spc(self):
+        """Seconds per tick at the script's tempo."""
+        return 60.0 / (self.bpm * CLOCKS_PER_BEAT)
+
+    def _predicted(self, pos):
+        return self.anchor_time + (pos - self.anchor_pos) * self.spc
+
+    def _virtual(self, now):
+        """Where the smoothed clock is at `now`, in ticks."""
+        return self.anchor_pos + (now - self.anchor_time) / self.spc
+
+    def _capped(self, pos):
+        """No further than MAX_AHEAD past the last tick received."""
+        return min(pos, self.position - 1 + MAX_AHEAD)
+
+    def _advance(self, now):
+        """Step every position the smoothed clock has crossed by `now`."""
+        target = self._capped(math.floor(self._virtual(now) + 1e-6))  # a tick due exactly now counts
+        if self.vpos is None or target - self.vpos > MAX_AHEAD + 2 * CLOCKS_PER_BEAT:
+            self.vpos = target  # lost track (e.g. nothing was stepping): carry on from here
+            return
+        while self.vpos < target:
+            self.vpos += 1
+            self._step(self.vpos, now)
+
+    def timing_report(self, now):
+        """A --timing line every TIMING_EVERY seconds while the clock runs, else None."""
+        return self._timing.report(now, 60.0 / (self.spc * CLOCKS_PER_BEAT))
+
+    def _step(self, pos, now):
+        """One clock position along the smoothed clock: grid-line hits, first notes, gates."""
         rate = self.rate
         on_line = pos % rate == 0
-        if on_line:
-            self.line_pos, self.line_time = pos, now
         for key, pad in list(self.pads.items()):
             pad.next_hit = pad.off_at = None  # timer mode starts afresh if the clock stops
             if on_line and pad.pending_first:
@@ -307,6 +434,8 @@ class NoteRepeater:
             return
         self._check_clock(now)
         if self.clocked(now):
+            if self.locked:
+                self._advance(now)
             return
         interval = self.interval()
         for key, pad in list(self.pads.items()):
@@ -379,11 +508,13 @@ class Bridge:
     more than FLOOD_WARN messages is logged, so an input overflow in FL can be traced.
     """
 
-    def __init__(self, to_fl, to_device, make_message=None, trace=False, clock=time.perf_counter):
+    def __init__(self, to_fl, to_device, make_message=None, trace=False, clock=time.perf_counter,
+                 timing=False):
         self.to_fl = to_fl
         self.to_device = to_device
         self.make_message = make_message
         self.trace = trace
+        self.timing = timing  # log the clock's jitter and the smoothed error (--timing)
         self.clock = clock
         self.lock = threading.Lock()
         self.repeater = NoteRepeater(self._emit, on_no_clock=self._no_clock)
@@ -443,6 +574,10 @@ class Bridge:
             now = self.clock()
             self.repeater.tick(now)
             self._flush_pressure(now)
+            if self.timing:
+                report = self.repeater.timing_report(now)
+                if report:
+                    log.info("%s", report)
 
     @property
     def busy(self):
@@ -534,7 +669,8 @@ class _Pressure:
 
 
 def _run_timer(bridge, stopping):
-    """Timer thread: drives Note Repeat while FL's clock isn't. Sleeps 1 ms while pads repeat."""
+    """Timer thread: plays Note Repeat, along the smoothed clock while FL plays and on its own
+    timing while stopped. Sleeps 1 ms while pads repeat (or pad pressure is waiting)."""
     while not stopping.is_set():
         bridge.tick()
         time.sleep(0.001 if bridge.busy else 0.02)
@@ -560,6 +696,8 @@ def _parse_args(argv):
     parser.add_argument("--to-fl", default=TO_FL_NAME, help="loopMIDI port FL reads from (default: %(default)s)")
     parser.add_argument("--from-fl", default=FROM_FL_NAME, help="loopMIDI port FL writes to (default: %(default)s)")
     parser.add_argument("--verbose", action="store_true", help="log every message passed through")
+    parser.add_argument("--timing", action="store_true",
+                        help="log FL's clock jitter and the smoothed error every %d s while it runs" % TIMING_EVERY)
     parser.add_argument("--log", metavar="FILE", help="write the log to FILE (useful with pythonw)")
     return parser.parse_args(argv)
 
@@ -598,7 +736,8 @@ def main(argv=None):
         opened.append(device_out)
         to_fl = mido.open_output(to_fl_name)
         opened.append(to_fl)
-        bridge = Bridge(to_fl.send, device_out.send, make_message=mido.Message, trace=args.verbose)
+        bridge = Bridge(to_fl.send, device_out.send, make_message=mido.Message, trace=args.verbose,
+                        timing=args.timing)
         opened.append(mido.open_input(device_in_name, callback=bridge.from_device))
         opened.append(mido.open_input(from_fl_name, callback=bridge.from_fl))
     except Exception as error:  # e.g. FL still has the MK2's port open

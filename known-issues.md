@@ -160,7 +160,7 @@ Bank B's **notes** and **empty** flags come back correctly from `plugins.getPadI
 
 **If an overflow happens again:** check the bridge console for the traffic line, to see what was flooding.
 
-## MK2 bridge: a large audio buffer makes Note Repeat jitter (worked around by setting)
+## MK2 bridge: a large audio buffer makes Note Repeat jitter (smoothed in the bridge)
 
 **Observed:** 2026-09-29, recording Note Repeat while FL was playing, with FL's ASIO driver at a 512-sample buffer. Every repeat was slightly early or late, never drifting further, so quantizing to 1/6 or 1/4 step lined everything up. At 256 samples the jitter was gone.
 
@@ -177,7 +177,7 @@ Bank B's **notes** and **empty** flags come back correctly from `plugins.getPadI
 
 The bridge adds only about 1 ms of its own (loopMIDI and its 1 ms timer). This is also why FL warns that master sync with ASIO may be inconsistent.
 
-**Workaround:** set FL's audio buffer to **256 samples or less** (Options > Audio settings).
+**Workaround before the fix, still useful for latency:** set FL's audio buffer to **256 samples or less** (Options > Audio settings).
 - **FL Studio ASIO's minimum** here is 256.
 - **A dedicated audio interface** with its own ASIO driver (e.g. NI Komplete Audio) typically goes lower, to 64 or 32 samples; the exact minimum depends on the model and driver.
 - **A higher sample rate** also shortens each buffer: 256 samples at 96 kHz is ~2.7 ms.
@@ -185,4 +185,10 @@ The bridge adds only about 1 ms of its own (loopMIDI and its 1 ms timer). This i
 
 **Symptom to recognise:** repeats that are a little early or late, never getting worse, and that line up after quantizing to a small division. If instead they drift further off over time, or sit a constant amount off a triplet grid, it's something else.
 
-**Possible script fix (not done):** the bridge could smooth FL's clock, estimating tempo and beat position from many ticks and scheduling repeats on its own 1 ms timer instead of firing on each tick. That would remove the outgoing part of the jitter at any buffer size, but not any added by FL when it records incoming MIDI.
+**Fix in the bridge (2026-09-29):** it no longer plays a repeat when each tick arrives. It smooths FL's clock with a delay-locked loop, estimating tempo and beat position from many ticks, and plays repeats on its own 1 ms timer. In a simulation of 512-sample clumps, repeats are within 1 ms of even, against about 8 ms firing on the raw ticks. Start the bridge with `--timing` to see FL's real tick jitter and the smoothed figure.
+
+**What remains:**
+- **Recording error:** any error FL adds when it records the incoming notes, if it places incoming MIDI in whole-buffer steps. Smaller buffers still help with that, and with latency.
+- **A constant offset:** a few ms, the same for every note. FL's clock is always a little late, and the model follows its average.
+
+**Confirmed in FL (2026-09-29):** at the default 512-sample buffer and 140 BPM, `--timing` showed raw tick jitter of about ±7 ms, smoothed to ±0.3–0.4 ms. Note Repeat worked well without lowering the buffer.

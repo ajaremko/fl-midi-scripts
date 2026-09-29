@@ -3,6 +3,7 @@ Tests the MK2 bridge's routing without MIDI ports (mido isn't needed).
 Run from the FL Complete folder: python3 -m unittest discover -s tests -v
 """
 
+import math
 import os
 import sys
 import unittest
@@ -123,14 +124,20 @@ class BridgeFirstNoteTest(unittest.TestCase):
         now = [0.0]
         b = bridge.Bridge(to_fl.append, lambda m: None, make_message=Msg, clock=lambda: now[0])
         b.from_fl(cc16(bridge.CC_REPEAT, 127))
+        b.from_fl(cc16(bridge.CC_TEMPO, 1250 >> 7))
+        b.from_fl(cc16(bridge.CC_TEMPO_LSB, 1250 & 0x7F))  # 125 BPM: a tick is 20 ms
         b.from_fl(Msg("start"))
-        b.from_fl(Msg("clock"))  # line 0 at t = 0
+        for pos in range(0, 3):  # line 0 at t = 0
+            now[0] = pos * 0.02
+            b.from_fl(Msg("clock"))
+            b.tick()
         now[0] = 0.05
         b.from_device(Msg("note_on", channel=0, note=12, velocity=90))
         self.assertEqual(to_fl, [])  # held back
-        for pos in range(1, 7):
-            now[0] = 0.05 + pos * 0.02
+        for pos in range(3, 7):
+            now[0] = pos * 0.02
             b.from_fl(Msg("clock"))
+            b.tick()
         self.assertEqual(to_fl, [Msg("note_on", channel=0, note=12, velocity=90)])  # on line 6
 
 
@@ -220,10 +227,19 @@ class NoteRepeaterTest(unittest.TestCase):
     def hits(self):
         return [n for n in self.notes if n[0] == "note_on"]
 
+    def start_clock(self):
+        """Start FL's clock at 125 BPM, where a tick is exactly 20 ms (a 1/16 is 0.12 s, the
+        grace window 15 ms and the minimum spacing 60 ms)."""
+        self.r.control_change(bridge.CC_TEMPO, 1250 >> 7)
+        self.r.control_change(bridge.CC_TEMPO_LSB, 1250 & 0x7F)
+        self.r.start()
+
     def run_clocks(self, first, last, start_time=0.0):
-        """Send clocks at positions first..last, 20 ms apart."""
+        """Send clocks at positions first..last, 20 ms apart, running the timer at each."""
         for i, _ in enumerate(range(first, last + 1)):
-            self.r.clock(start_time + i * 0.02)
+            t = start_time + i * 0.02
+            self.r.clock(t)
+            self.r.tick(t)
 
     def test_off_passes_everything_and_tracks_nothing(self):
         self.r.control_change(bridge.CC_REPEAT, 0)
@@ -266,7 +282,7 @@ class NoteRepeaterTest(unittest.TestCase):
         self.assertEqual(self.r.rate, 128)
 
     def test_clock_mode_hits_on_the_grid(self):
-        self.r.start()
+        self.start_clock()
         self.run_clocks(0, 1)  # positions 0, 1 (a grid line at 0, t = 0)
         # Pressed 30 ms after line 0: past the grace window (1/8 of 0.125 s), so it's held back.
         self.assertFalse(self.r.pad_on(0, 12, 90, 0.03))
@@ -275,19 +291,19 @@ class NoteRepeaterTest(unittest.TestCase):
         self.assertEqual(self.notes, [("note_on", 12, 90), ("note_off", 12, 0), ("note_on", 12, 90)])
 
     def test_press_just_after_a_grid_line_plays_at_once_and_counts_as_it(self):
-        self.r.start()
+        self.start_clock()
         self.run_clocks(0, 6)  # line 6 at t = 0.12
         self.assertTrue(self.r.pad_on(0, 12, 90, 0.125))  # 5 ms after it: within the grace window
         self.assertEqual(self.hit_positions(range(7, 19)), [12, 18])  # 6 isn't hit again
 
     def test_press_just_before_a_grid_line_plays_on_it(self):
-        self.r.start()
+        self.start_clock()
         self.run_clocks(0, 4)
         self.assertFalse(self.r.pad_on(0, 12, 90, 0.09))  # next clock is 5; line 6 is next
         self.assertEqual(self.hit_positions(range(5, 13)), [6, 12])
 
     def test_a_quick_tap_still_plays_one_note_on_the_grid(self):
-        self.r.start()
+        self.start_clock()
         self.run_clocks(0, 2)
         self.assertFalse(self.r.pad_on(0, 12, 90, 0.045))
         self.assertFalse(self.r.pad_off(0, 12, 0.05))  # released before line 6: not passed on
@@ -296,7 +312,7 @@ class NoteRepeaterTest(unittest.TestCase):
         self.assertFalse(self.r.busy)  # done with
 
     def test_a_held_back_note_plays_at_once_if_the_clock_stops(self):
-        self.r.start()
+        self.start_clock()
         self.run_clocks(0, 2)
         self.r.pad_on(0, 12, 90, 0.045)
         self.r.stop()
@@ -304,7 +320,7 @@ class NoteRepeaterTest(unittest.TestCase):
         self.assertEqual(self.hits(), [("note_on", 12, 90)])
 
     def test_a_held_back_tap_plays_and_ends_on_the_timer_if_the_clock_stops(self):
-        self.r.start()
+        self.start_clock()
         self.run_clocks(0, 2)
         self.r.pad_on(0, 12, 90, 0.045)
         self.r.pad_off(0, 12, 0.05)
@@ -321,7 +337,7 @@ class NoteRepeaterTest(unittest.TestCase):
         self.assertEqual(self.r.grace(), bridge.GRACE_MAX)
 
     def test_song_position_jump_hits_the_next_grid_line(self):
-        self.r.start()
+        self.start_clock()
         self.run_clocks(0, 1)
         self.r.pad_on(0, 12, 90, 0.03)
         self.r.songpos(0)  # a jump back to the start, well after the press
@@ -331,27 +347,31 @@ class NoteRepeaterTest(unittest.TestCase):
     def test_loop_wrap_hits_once_on_the_downbeat(self):
         # A 1-bar loop: the clock at 96 (end of the bar, a grid line) is followed a few ms later by
         # song position 0 and the clock at 0 (also a grid line). One note, not two.
-        self.r.start()
+        self.start_clock()
         self.r.pad_on(0, 12, 90, 0.0)
         t = 0.0
         for pos in range(0, 97):
             t = pos * 0.02
             self.r.clock(t)
+            self.r.tick(t)
         before = len(self.hits())
         self.r.songpos(0)
         self.r.clock(t + 0.003)
+        self.r.tick(t + 0.003)
         self.assertEqual(len(self.hits()), before)  # 96 hit; 0 is too close to it
         for pos in range(1, 7):
             self.r.clock(t + 0.003 + pos * 0.02)
+            self.r.tick(t + 0.003 + pos * 0.02)
         self.assertEqual(len(self.hits()), before + 1)  # then 6 hits as usual
 
     def test_a_position_resent_where_a_pad_just_hit_does_not_hit_again(self):
-        self.r.start()
+        self.start_clock()
         self.r.pad_on(0, 12, 90, 0.0)
         self.run_clocks(0, 12)  # hits at 6 and 12
         hits = len(self.hits())
         self.r.songpos(2)  # position 12 again
         self.r.clock(1.0)  # long after, but the same position
+        self.r.tick(1.0)
         self.assertEqual(len(self.hits()), hits)
 
     def hit_positions(self, positions):
@@ -360,16 +380,17 @@ class NoteRepeaterTest(unittest.TestCase):
         for pos in positions:
             before = len(self.hits())
             self.r.clock(pos * 0.02)
+            self.r.tick(pos * 0.02)
             if len(self.hits()) > before:
                 hit.append(pos)
         return hit
 
     def test_rate_change_in_clock_mode_follows_the_new_grid(self):
-        self.r.start()
+        self.start_clock()
         self.r.pad_on(0, 12, 90, 0.0)
         self.assertEqual(self.hit_positions(range(0, 7)), [6])
         self.r.control_change(bridge.CC_RATE, 0)
-        self.r.control_change(bridge.CC_RATE_LSB, 8)  # 1/8T: 0.167 s at 120 BPM
+        self.r.control_change(bridge.CC_RATE_LSB, 8)  # 1/8T: 0.16 s at 125 BPM
         # Line 8 is only 40 ms after the hit at 6 (less than half an interval), so the next hit
         # is line 16, then every 8 clocks.
         self.assertEqual(self.hit_positions(range(7, 33)), [16, 24, 32])
@@ -414,7 +435,7 @@ class NoteRepeaterTest(unittest.TestCase):
         self.assertEqual(warnings, [])
 
     def test_stop_or_a_silent_clock_falls_back_to_the_timer(self):
-        self.r.start()
+        self.start_clock()
         self.run_clocks(0, 1)
         self.r.stop()
         self.r.pad_on(0, 12, 90, 0.05)
@@ -443,6 +464,108 @@ class NoteRepeaterTest(unittest.TestCase):
         self.r.tick(0.13)
         self.r.tick(0.18)
         self.assertEqual(self.hits(), [("note_on", 12, 90), ("note_on", 13, 60)])
+
+
+class ClockSmoothingTest(unittest.TestCase):
+    """FL sends its clock once per audio buffer, so ticks arrive late by up to a buffer. At 120 BPM
+    a tick is 20.8 ms; a 512-sample buffer at 48 kHz is 10.7 ms."""
+
+    TICK = 60.0 / 120 / 24
+    BUFFER = 512 / 48000.0
+
+    def setUp(self):
+        self.now = 0.0
+        self.hit_times = []
+
+        def emit(kind, channel, note, velocity):
+            if kind == "note_on":
+                self.hit_times.append(self.now)
+
+        self.r = bridge.NoteRepeater(emit)
+        self.r.control_change(bridge.CC_REPEAT, 127)
+
+    def arrivals(self, ticks, quantize=True, offset=0.003):
+        """(arrival time, position) of each tick: its ideal time, rounded up to a buffer boundary."""
+        out = []
+        for k in range(ticks):
+            ideal = offset + k * self.TICK
+            out.append((math.ceil(ideal / self.BUFFER) * self.BUFFER if quantize else ideal, k))
+        return out
+
+    def simulate(self, arrivals, until, step=0.0005, before_each=None):
+        """Deliver ticks at their arrival times and run the timer every `step` seconds."""
+        pending = list(arrivals)
+        while self.now <= until:
+            while pending and pending[0][0] <= self.now:
+                _, k = pending.pop(0)
+                if before_each:
+                    before_each(k)
+                self.r.clock(self.now)
+            self.r.tick(self.now)
+            self.now += step
+
+    def spacing_errors(self, skip=4):
+        intervals = [b - a for a, b in zip(self.hit_times, self.hit_times[1:])][skip:]
+        return [abs(i - 6 * self.TICK) for i in intervals]
+
+    def test_clumped_ticks_give_evenly_spaced_repeats(self):
+        self.r.start()
+        self.r.pad_on(0, 12, 90, 0.0)  # held from the start
+        arrivals = self.arrivals(24 * 8)  # 8 beats
+        raw = [b - a for (a, _), (b, _) in zip(arrivals, arrivals[1:])]
+        self.assertGreater(max(raw) - min(raw), 0.009)  # the raw ticks jitter by about a buffer
+        self.simulate(arrivals, until=arrivals[-1][0])
+        errors = self.spacing_errors()
+        self.assertGreater(len(errors), 20)
+        self.assertLess(max(errors), 0.0015)  # smoothed: repeats within 1.5 ms of even
+
+    def test_a_late_tick_does_not_delay_its_grid_line(self):
+        self.r.start()
+        self.r.pad_on(0, 12, 90, 0.0)
+        arrivals = self.arrivals(49, quantize=False)
+        late = dict((k, t) for t, k in arrivals)
+        # Tick 48 (a grid line) arrives 8 ms late; the line should still play on time.
+        arrivals = [(t + 0.008 if k == 48 else t, k) for t, k in arrivals]
+        self.simulate(arrivals, until=late[48] + 0.004)
+        self.assertAlmostEqual(self.hit_times[-1], late[48], delta=0.001)
+
+    def test_the_model_stops_max_ahead_past_the_last_tick_then_the_timer_takes_over(self):
+        self.r.start()
+        self.r.pad_on(0, 12, 90, 0.0)
+        arrivals = self.arrivals(10, quantize=False)
+        last = arrivals[-1][0]
+        self.simulate(arrivals, until=last + 0.2)  # no more ticks
+        self.assertEqual(self.r.vpos, 9 + bridge.MAX_AHEAD)
+        self.assertFalse(self.r.clocked(last + bridge.CLOCK_TIMEOUT + 0.01))
+
+    def test_a_loop_wrap_keeps_the_phase(self):
+        self.r.start()
+        self.r.pad_on(0, 12, 90, 0.0)
+        # A 1-bar loop: ticks 0..95, then song position 0 and the next bar's ticks continue in time.
+        bar = self.arrivals(96, quantize=False)
+        next_bar = [(t + 96 * self.TICK, k) for t, k in bar[:13]]
+
+        def wrap(k):
+            if k == 0 and self.now > 1.0:
+                self.r.songpos(0)
+
+        self.simulate(bar + next_bar, until=next_bar[-1][0], before_each=wrap)
+        self.assertTrue(self.r.locked)
+        errors = self.spacing_errors()
+        self.assertLess(max(errors), 0.0015)  # no jump at the bar line, and no double hit
+
+    def test_a_tempo_change_applies_at_once(self):
+        self.r.control_change(bridge.CC_TEMPO, 1400 >> 7)
+        self.r.control_change(bridge.CC_TEMPO_LSB, 1400 & 0x7F)  # 140 BPM
+        self.assertAlmostEqual(self.r.spc, 60.0 / 140 / 24)
+
+    def test_timing_report(self):
+        self.r.start()
+        self.assertIsNone(self.r.timing_report(0.0))  # starts the period
+        self.simulate(self.arrivals(24 * 12), until=5.8)
+        report = self.r.timing_report(self.now)
+        self.assertRegex(report, r"clock: 12\d\.\d BPM, tick jitter \+/-\d+\.\d ms, smoothed \+/-\d\.\d ms")
+        self.assertIsNone(self.r.timing_report(self.now))  # the next one is 5 s away
 
 
 class FindPortTest(unittest.TestCase):
