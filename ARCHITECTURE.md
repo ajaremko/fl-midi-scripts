@@ -23,6 +23,10 @@ Only the Maschine MK2 script exists so far. The Akai Fire and FLkey 2 scripts wi
 ```text
 FL Complete/
 ├── device_FLC_MaschineMK2.py      entry script: header + FL callbacks, nothing else
+├── mk2_bridge/                    helper program run beside FL (not by FL): MK2 <-> loopMIDI passthrough
+│   ├── bridge.py                  Bridge (routing), find_port, main (opens the ports)
+│   ├── requirements.txt           mido, python-rtmidi
+│   └── start_bridge.bat           starts it in a console window
 ├── flc_maschine/                  the MK2 script's package
 │   ├── controls.py                hardware config: every control and the MIDI message it sends
 │   ├── bindings.py                function config: which handler each control runs, per layer
@@ -69,6 +73,7 @@ FL Complete/
 ## 2. Runtime model
 
 - **One instance per port.** FL Studio runs a separate copy of the script for each MIDI port it is assigned to. Each copy has its own module namespace, so module-level state is never shared with the other controllers' scripts. The controllers only share FL Studio's own state: focus, selection, transport.
+- **Bridge in between.** The MK2 doesn't talk to FL directly. [mk2_bridge/bridge.py](mk2_bridge/bridge.py), an ordinary Python 3 program on the Windows host, owns the MK2's ports and passes MIDI to FL through two loopMIDI ports ("MK2 Bridge In" for FL's input, "MK2 Bridge Out" for its output). For now it passes everything through unchanged, except FL's MIDI clock and other real-time messages, which it doesn't send to the MK2. It exists so timing-sensitive features (note repeat) can run on a real timer instead of FL's irregular `OnIdle`. The script itself is unchanged by it. Setup is in the README.
 - **Thin entry script.** [device_FLC_MaschineMK2.py](device_FLC_MaschineMK2.py) creates one `MaschineMk2` and forwards `OnInit`, `OnDeInit`, `OnMidiMsg`, `OnRefresh` and `OnIdle` to it. The `# name=` header must stay on line 1.
 - **Embedded Python.** FL Studio's Python may not have the full standard library. Use only modules the shipped vendor scripts already use (`enum`, `typing`, `time`, `math`, `traceback`). Avoid `dataclasses`; the code uses plain classes with `__slots__` instead.
 
@@ -377,6 +382,8 @@ From the `FL Complete` folder:
 ```bash
 python3 -m unittest discover -s tests -v
 ```
+
+**`test_bridge.py`** tests [mk2_bridge/bridge.py](mk2_bridge/bridge.py) without MIDI ports or `mido`: MK2 messages reach FL unchanged, FL messages reach the MK2 except clock and other real-time messages, a failed send is logged rather than raised, port-name matching (excluding the bridge's own ports, and errors listing the ports found), and a clear message when `mido` isn't installed.
 
 **`test_template.py`** parses `FL Complete.ncm2` and checks five things:
 

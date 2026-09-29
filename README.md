@@ -19,6 +19,36 @@ Of the 3 controllers, its responsible for
 
 This allows the other two controllers to focus on doing what they do best - being a sequencer and a keyboard respectively.
 
+### MK2 bridge (setup)
+
+The MK2 connects to FL through a small helper program, [mk2_bridge/bridge.py](mk2_bridge/bridge.py), that runs next to FL Studio. For now it passes MIDI through unchanged in both directions. It is where note repeat will be timed, because FL scripts get no reliable timer.
+
+```text
+MK2 --USB--> bridge --> loopMIDI "MK2 Bridge In"  --> FL (this script)
+MK2 <--USB-- bridge <-- loopMIDI "MK2 Bridge Out" <-- FL (LEDs)
+```
+
+One-time setup, on the Windows machine running FL Studio:
+
+1. Install [Python 3.12](https://www.python.org/downloads/windows/), the **Windows installer (64-bit)**. It must be 3.12: `python-rtmidi` has ready-made Windows packages only up to 3.12, and with a newer Python pip tries to compile it and fails without a C++ compiler. It can be installed alongside a newer Python.
+2. In a terminal, in the `mk2_bridge` folder: `py -3.12 -m pip install -r requirements.txt`. The `py` launcher picks 3.12 even when another Python is the default.
+3. Install [loopMIDI](https://www.tobias-erichsen.de/software/loopmidi.html) and add two ports named `MK2 Bridge In` and `MK2 Bridge Out`. Turn on its "Autostart loopMIDI" option, because the ports must exist before FL starts.
+4. Run `py -3.12 bridge.py --list` and check the MK2's ports are listed. If their names don't contain "Maschine MK2", pass the right name with `--device "..."` when starting the bridge.
+5. In FL Studio, **Options > MIDI settings**. Every loopMIDI port appears in **both** the Input and the Output lists. The port names describe the direction from FL's side, so each one is used in one list only:
+
+   | FL list | Enable | Leave disabled |
+   |---|---|---|
+   | **Input** | `MK2 Bridge In`: Controller type **FL Complete Maschine MK2**, port number e.g. 10 | `MK2 Bridge Out`, and the MK2's own input |
+   | **Output** | `MK2 Bridge Out`: the **same port number** as the input | `MK2 Bridge In`, and the MK2's own output |
+
+   - **Swapped ports don't work.** If `MK2 Bridge Out` is enabled as an input and `MK2 Bridge In` as an output, FL listens where nothing arrives and sends where the bridge isn't listening. Nothing happens in either direction.
+   - **The MK2's own ports must be disabled**, not just set to no script. If FL has them open, the bridge can't open them and says so when it starts.
+   - **Matching port numbers** are how FL pairs the script's input with its output. With a different number, the pads and buttons work but no LEDs change.
+
+Each session: start the bridge with `start_bridge.bat` (a console window; close it to stop the bridge). It can be started, stopped or restarted while FL is open. To start it hidden at log on, put a shortcut to `pyw -3.12 bridge.py --log bridge.log` (started in the `mk2_bridge` folder) in the Windows Startup folder; `--log` is needed because `pyw` has no console. `--verbose` logs every message, for troubleshooting.
+
+If the bridge isn't running, the MK2 does nothing in FL.
+
 ### Hardware Layout Diagram
 
 ```text
