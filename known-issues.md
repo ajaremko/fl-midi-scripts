@@ -110,3 +110,13 @@ Bank B's **notes** and **empty** flags come back correctly from `plugins.getPadI
 - `render skipped: FL not safe to edit` / `FL safe again` mark FL's busy periods. `slow <callback>: N ms` flags callbacks over 25 ms, and `! exception in …` gives a traceback.
 - A `stats:` line every 5 s (from `OnIdle`) gives call counts, renders and the slowest render, and state sizes. Because it is the only line written while idle, **any** hang during an idle period leaves a log ending on a stats line. The first missing stats line dates the freeze of the UI thread.
 - Optional, off by default: `MEMORY_STATS` (a `memory:` line with allocated blocks and GC counters) and `WATCH_GC` (`gc start/stop gen2` lines).
+
+## Transpose: channel pitch units and maximum range unconfirmed
+
+**Observed:** 2026-09-28, while moving shift Pads 13–16 (Semitone/Octave −/+) onto the selected channel's pitch.
+
+**Units.** The manual says `channels.getChannelPitch(index, 1)` and `setChannelPitch(index, value, 1)` work in semitones. Arturia's KeyLab mk3 script uses unit 1 as cents (range × 100). Both agree that mode 2 is the pitch range in semitones. The script avoids unit 1: it reads the normalised pitch (mode 0, −1…+1 of the range) and the range (mode 2), and sets the normalised pitch ([pads.transpose](flc_maschine/handlers/pads.py)).
+
+**Maximum range.** When a step goes past the channel's pitch range (FL's default is ±2 semitones), the script widens the range to 12, 24, 36 or 48 semitones, and stops the pitch at ±48 (`MAX_PITCH_RANGE`). That 48 is a guess at FL's maximum range. If FL caps the range lower, the knob will stop short of the hint's value. Lower `PITCH_RANGE_STEPS` to match.
+
+**Checking in FL Studio.** Select a channel and turn shift mode on (F8). Pad 13 should move the channel's pitch knob to +100 cents. Pad 16 should set the range in the channel's settings to 12 and the knob to +13 semitones. Keep pressing Pad 16 up to +48 and compare the knob with the hint.

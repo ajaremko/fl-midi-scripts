@@ -122,10 +122,10 @@ def _build():
     # Pads 1-16, numbered from the bottom left as on the hardware. The pads always send
     # Pad Page A's notes; poly aftertouch uses the same note number.
     pad_alt_labels = [
-        "Undo", "Redo", "Step Undo", "Step Redo",
+        "Undo", "Redo", "Compare", "Split",
         "Quantize", "Quantize 50%", "Nudge Left", "Nudge Right",
         "Clear", "Clear Auto", "Copy", "Paste",
-        "Semitone Down", "Semitone Up", "Octave Up", "Octave Down",
+        "Semitone Up", "Semitone Down", "Octave Down", "Octave Up",
     ]
     for i in range(16):
         controls.append(

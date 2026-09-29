@@ -12,7 +12,9 @@ WHITE = (0, 0, MAX)
 # Fully saturated, full-brightness colours (hue 0-127 spans 360 degrees).
 RED = (0, MAX, MAX)
 ORANGE = (11, MAX, MAX)  # 30 degrees
+YELLOW = (21, MAX, MAX)  # 60 degrees
 GREEN = (42, MAX, MAX)  # 120 degrees
+CYAN = (64, MAX, MAX)  # 180 degrees
 BLUE = (85, MAX, MAX)  # 240 degrees
 PURPLE = (99, MAX, MAX)  # 280 degrees
 
@@ -38,7 +40,11 @@ def rgb_to_hsb(color):
         hue = (r - g) / spread + 4
     saturation = spread / high if high else 0.0
 
-    return (round(hue / 6 * MAX) % (MAX + 1), round(saturation * MAX), round(high / 255 * MAX))
+    return (
+        round(hue / 6 * MAX) % (MAX + 1),
+        round(saturation * MAX),
+        round(high / 255 * MAX),
+    )
 
 
 def with_brightness(hsb, brightness):

@@ -14,6 +14,10 @@ def getRecPPB():
     return ppb
 
 
+def undo():
+    calls.append("undo")
+
+
 def undoUp():
     calls.append("undoUp")
 

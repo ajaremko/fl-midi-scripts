@@ -41,10 +41,8 @@ def _channel_color(state, fl, frame):
     fpc_mode = fl.fpc_channel is not None
 
     if not fpc_mode:
-        for index, pad_id in enumerate(_PAD_IDS):
-            # Dark when the transposed note is out of MIDI's range: the pad is silent then.
-            if notes.pad_note(state.pad_group, index, state.note_offset) is not None:
-                frame[pad_id] = lit
+        for pad_id in _PAD_IDS:
+            frame[pad_id] = lit
     else:
         bank = notes.FPC_BANK_FOR_GROUP.get(state.pad_group)
         if bank is not None:
@@ -80,6 +78,12 @@ def _transport(state, fl, frame):
     frame["SCENE"] = fl.song_mode
 
 
+def _channel_state(state, fl, frame):
+    """Solo and Mute light while the selected channel is soloed or muted."""
+    frame["SOLO"] = fl.channel_solo
+    frame["MUTE"] = fl.channel_muted
+
+
 def _pad_mode(state, fl, frame):
     frame["PAD_MODE"] = state.fixed_velocity
 
@@ -100,14 +104,18 @@ MODE_COLORS = {
     SHIFT: {
         "PAD_1": colors.ORANGE,  # undo
         "PAD_2": colors.ORANGE,  # redo
-        "PAD_11": colors.BLUE,  # copy
-        "PAD_12": colors.BLUE,  # paste
+        "PAD_3": colors.ORANGE,  # compare (undo toggle)
+        "PAD_11": colors.CYAN,  # copy
+        "PAD_12": colors.CYAN,  # paste
         "PAD_5": colors.GREEN,  # quantize
-        "PAD_9": colors.RED,  # clear (cut)
-        "PAD_13": colors.PURPLE,  # semitone down
-        "PAD_14": colors.PURPLE,  # semitone up
-        "PAD_15": colors.PURPLE,  # octave up
-        "PAD_16": colors.PURPLE,  # octave down
+        "PAD_7": colors.BLUE,  # nudge left (tempo)
+        "PAD_8": colors.BLUE,  # nudge right (tempo)
+        "PAD_9": colors.RED,  # clear (delete)
+        "PAD_10": colors.YELLOW,  # cut
+        "PAD_13": colors.PURPLE,  # semitone up
+        "PAD_14": colors.PURPLE,  # semitone down
+        "PAD_15": colors.PURPLE,  # octave down
+        "PAD_16": colors.PURPLE,  # octave up
     },
 }
 
@@ -124,8 +132,6 @@ def _mode_highlight(state, fl, frame):
     lit_hsb = colors.with_brightness(_channel_hsb(fl), LIT_BRIGHTNESS)
     for control in controls.LED_CONTROLS:
         shown = control.id == MODE_BUTTONS[state.mode] or control.id in mode_controls
-        if fl.fpc_channel is not None and control.id in bindings.FPC_DISABLED:
-            shown = False
         if control.led == controls.HSB:
             if not shown:
                 frame[control.id] = colors.OFF
@@ -141,6 +147,7 @@ RULES = [
     _channel_color,
     _focused_window,
     _transport,
+    _channel_state,
     _pad_mode,
     _encoder_mode,
     _mode_highlight,

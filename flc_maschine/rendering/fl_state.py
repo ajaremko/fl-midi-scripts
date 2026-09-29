@@ -15,15 +15,19 @@ WINDOWS = (midi.widMixer, midi.widChannelRack, midi.widPlaylist, midi.widPianoRo
 
 
 class FlSnapshot:
-    __slots__ = ("focused_window", "playing", "recording", "song_mode", "channel_color", "fpc_channel", "fpc_banks")
+    __slots__ = ("focused_window", "playing", "recording", "song_mode", "channel_color", "channel_solo",
+                 "channel_muted", "fpc_channel", "fpc_banks")
 
     def __init__(self, focused_window=None, playing=False, recording=False, song_mode=False,
-                 channel_color=None, fpc_channel=None, fpc_banks=None):
+                 channel_color=None, channel_solo=False, channel_muted=False, fpc_channel=None,
+                 fpc_banks=None):
         self.focused_window = focused_window  # one of WINDOWS, or None
         self.playing = playing
         self.recording = recording
         self.song_mode = song_mode  # True in song (Playlist) mode, False in pattern mode
         self.channel_color = channel_color  # selected channel's colour as 0xRRGGBB, or None
+        self.channel_solo = channel_solo  # selected channel is soloed
+        self.channel_muted = channel_muted  # selected channel is muted (also while another is soloed)
         self.fpc_channel = fpc_channel  # selected channel if it is an FPC, else None
         self.fpc_banks = fpc_banks  # fpc.read_banks() of that FPC, else None
 
@@ -42,6 +46,8 @@ class FlSnapshot:
             recording=bool(transport.isRecording()),
             song_mode=transport.getLoopMode() != midi.SM_Pat,
             channel_color=channels.getChannelColor(channel) & 0xFFFFFF if channel >= 0 else None,
+            channel_solo=channel >= 0 and bool(channels.isChannelSolo(channel)),
+            channel_muted=channel >= 0 and bool(channels.isChannelMuted(channel)),
             fpc_channel=fpc_channel,
             fpc_banks=fpc.read_banks(fpc_channel) if fpc_channel is not None else None,
         )

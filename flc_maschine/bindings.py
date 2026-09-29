@@ -14,6 +14,7 @@ import midi
 
 from .handlers.common import unimplemented
 from .handlers import (
+    channel_controls,
     edit,
     encoder,
     groups,
@@ -71,10 +72,10 @@ _base = {
     "PATTERN": encoder.toggle_mode("PATTERN"),
     "PAD_MODE": pads.toggle_fixed_velocity,
     "NAVIGATE": encoder.toggle_mode("NAVIGATE"),
-    "DUPLICATE": unimplemented(),
+    "DUPLICATE": pattern_controls.duplicate_pattern,
     "SELECT": unimplemented(),
-    "SOLO": unimplemented(),
-    "MUTE": unimplemented(),
+    "SOLO": channel_controls.solo,
+    "MUTE": channel_controls.mute,
 }
 
 # F9-F16 have no function yet.
@@ -96,20 +97,20 @@ _shift = {
     # Pads become edit actions.
     "PAD_1": edit.undo,
     "PAD_2": edit.redo,
-    "PAD_3": unimplemented("step undo"),
-    "PAD_4": unimplemented("step redo"),
+    "PAD_3": edit.compare,
+    "PAD_4": unimplemented("split"),
     "PAD_5": edit.quantize,
     "PAD_6": unimplemented("quantize 50% (not possible: FL's quickQuantize has no strength setting)"),
-    "PAD_7": unimplemented("nudge left"),
-    "PAD_8": unimplemented("nudge right"),
-    "PAD_9": ui_commands.send(midi.FPT_Cut),
-    "PAD_10": unimplemented("clear automation"),
+    "PAD_7": ui_commands.send(midi.FPT_TempoJog, -1),  # nudge left: tempo -0.1 BPM
+    "PAD_8": ui_commands.send(midi.FPT_TempoJog, +1),  # nudge right: tempo +0.1 BPM
+    "PAD_9": ui_commands.send(midi.FPT_Delete),  # clear
+    "PAD_10": ui_commands.send(midi.FPT_Cut),  # cut, on the Clear Auto pad
     "PAD_11": ui_commands.send(midi.FPT_Copy),
     "PAD_12": ui_commands.send(midi.FPT_Paste),
-    "PAD_13": pads.transpose(-1),  # semitone down
-    "PAD_14": pads.transpose(+1),  # semitone up
-    "PAD_15": pads.transpose(+12),  # octave up
-    "PAD_16": pads.transpose(-12),  # octave down
+    "PAD_13": pads.transpose(+1),  # semitone up
+    "PAD_14": pads.transpose(-1),  # semitone down
+    "PAD_15": pads.transpose(-12),  # octave down
+    "PAD_16": pads.transpose(+12),  # octave up
 }
 
 # New mode is one-shot: each function turns New mode off after it runs.
@@ -138,10 +139,6 @@ MODE_CONTROLS = {
     SHIFT: _implemented(_shift),
     NEW: _implemented(_new),
 }
-
-# Mode functions that do nothing while the selected channel is FPC (so they aren't highlighted then):
-# transposing the chromatic pad layout doesn't apply to FPC's own pad notes.
-FPC_DISABLED = frozenset(["PAD_13", "PAD_14", "PAD_15", "PAD_16"])
 
 
 def lookup(state, control_id):

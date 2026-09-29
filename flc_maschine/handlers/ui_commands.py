@@ -10,12 +10,13 @@ from .. import diagnostics
 from .common import on_press
 
 
-def send(command):
-    """A handler that sends one global transport command (midi.FPT_*) on each press."""
+def send(command, value=1):
+    """A handler that sends one global transport command (midi.FPT_*) on each press. value is the
+    command's value: 1 for buttons, the step (e.g. -1 or +1) for jogs."""
 
     @on_press
     def handler(controller, ev):
-        transport.globalTransport(command, 1)
+        transport.globalTransport(command, value)
 
     return handler
 

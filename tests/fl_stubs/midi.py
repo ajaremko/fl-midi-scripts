@@ -13,6 +13,7 @@ FPT_Right = 41
 FPT_Up = 42
 FPT_Down = 43
 FPT_Cut = 50
+FPT_Delete = 54
 FPT_Insert = 53
 FPT_Enter = 80
 FPT_Escape = 81

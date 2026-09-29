@@ -1,5 +1,5 @@
 """
-Editing actions for the shift-mode pads: Undo, Redo and Quantize.
+Editing actions for the shift-mode pads: Undo, Redo, Compare and Quantize.
 """
 
 import channels
@@ -16,6 +16,13 @@ def undo(controller, ev):
 @on_press
 def redo(controller, ev):
     general.undoDown()  # one step forward
+
+
+@on_press
+def compare(controller, ev):
+    """FL's Ctrl+Z. In FL's default undo mode it toggles the last edit off and on, so repeated
+    presses compare before and after (with "alternate undo mode" on it steps back instead)."""
+    general.undo()
 
 
 @on_press

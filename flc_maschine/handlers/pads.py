@@ -5,6 +5,7 @@ While the selected channel is FPC, Groups E and F play FPC's two banks instead (
 and the other groups are silent.
 """
 
+import channels
 import ui
 
 from .. import events, fpc, log, notes
@@ -12,6 +13,12 @@ from .common import on_press
 
 # Velocity pads play at while fixed velocity (Pad Mode) is on.
 FIXED_VELOCITY = 127
+
+# Shift pads 13-16 change the selected channel's pitch. When a step goes past the channel's pitch
+# range, the range is widened to the first of these (in semitones) that covers it; the pitch
+# stops at MAX_PITCH_RANGE either way.
+PITCH_RANGE_STEPS = (12, 24, 36, 48)
+MAX_PITCH_RANGE = PITCH_RANGE_STEPS[-1]
 
 # The group that plays FPC's bank A, which the pads jump to when an FPC is selected.
 FPC_START_GROUP = next(group for group, bank in notes.FPC_BANK_FOR_GROUP.items() if bank == 0)
@@ -24,7 +31,7 @@ def _note_for_press(state, fl, pad_index):
     can call at the same time as other callbacks.
     """
     if fl.fpc_channel is None or fl.fpc_banks is None:
-        return notes.pad_note(state.pad_group, pad_index, state.note_offset)
+        return notes.pad_note(state.pad_group, pad_index)
 
     bank = notes.FPC_BANK_FOR_GROUP.get(state.pad_group)
     if bank is None:
@@ -65,18 +72,26 @@ def toggle_fixed_velocity(controller, ev):
 
 
 def transpose(semitones):
-    """Shift pads 13-16: move the pads' chromatic notes by `semitones`, within +-MAX_NOTE_OFFSET.
+    """Shift pads 13-16: move the selected channel's pitch by `semitones`, so FL shows it on the
+    channel's pitch knob. Widens the channel's pitch range when the new pitch is outside it.
 
-    Disabled in FPC mode, where the pads play FPC's own pad notes.
+    Works in semitones from the normalised pitch (mode 0) and the range (mode 2) rather than the
+    API's semitone mode, which the manual and vendor scripts disagree on (semitones or cents).
     """
 
     @on_press
     def handler(controller, ev):
-        if controller.fl.fpc_channel is not None:
+        channel = channels.selectedChannel(1)
+        if channel < 0:
             return
-        state = controller.state
-        state.note_offset = max(-notes.MAX_NOTE_OFFSET, min(notes.MAX_NOTE_OFFSET, state.note_offset + semitones))
-        ui.setHintMsg("Pad transpose: %+d semitones" % state.note_offset)
+        pitch_range = channels.getChannelPitch(channel, 2)
+        current = round(channels.getChannelPitch(channel, 0) * pitch_range)
+        target = max(-MAX_PITCH_RANGE, min(MAX_PITCH_RANGE, current + semitones))
+        if abs(target) > pitch_range:
+            pitch_range = next(step for step in PITCH_RANGE_STEPS if step >= abs(target))
+            channels.setChannelPitch(channel, pitch_range, 2)
+        channels.setChannelPitch(channel, target / pitch_range, 0)
+        ui.setHintMsg("Channel pitch: %+d semitones (range +/-%d)" % (target, pitch_range))
 
     return handler
 

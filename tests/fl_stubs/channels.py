@@ -4,6 +4,11 @@ selected = -1  # -1: no channel selected
 colors = {}  # channel index -> 0xRRGGBB
 focused_editors = []  # channel indexes passed to focusEditor
 quantized = []  # (index, startOnly) passed to quickQuantize
+pitch = {}  # channel index -> normalised pitch, -1..1 of its range (default 0)
+pitch_range = {}  # channel index -> pitch range in semitones (default 2, FL's default)
+pitch_calls = []  # (index, value, pitchUnit) passed to setChannelPitch
+muted = set()  # muted channel indexes
+soloed = None  # the soloed channel index, or None
 
 
 def selectedChannel(canBeNone=0, offset=0, indexGlobal=0):
@@ -22,3 +27,41 @@ def focusEditor(index, useGlobalIndex=False):
 
 def quickQuantize(index, startOnly=1, useGlobalIndex=False):
     quantized.append((index, startOnly))
+
+
+def getChannelPitch(index, mode=0, useGlobalIndex=False):
+    if mode == 0:
+        return pitch.get(index, 0.0)
+    if mode == 2:
+        return pitch_range.get(index, 2)
+    raise NotImplementedError("the script doesn't use pitch mode %r" % mode)
+
+
+def setChannelPitch(index, value, pitchUnit=0, pickupMode=0, useGlobalIndex=False):
+    pitch_calls.append((index, value, pitchUnit))
+    if pitchUnit == 0:
+        pitch[index] = max(-1.0, min(1.0, value))
+    elif pitchUnit == 2:
+        pitch_range[index] = value
+    else:
+        raise NotImplementedError("the script doesn't use pitch unit %r" % pitchUnit)
+
+
+def muteChannel(index, value=-1, useGlobalIndex=False):
+    if index in muted:
+        muted.discard(index)
+    else:
+        muted.add(index)
+
+
+def isChannelMuted(index, useGlobalIndex=False):
+    return 1 if index in muted else 0
+
+
+def soloChannel(index, useGlobalIndex=False):
+    global soloed
+    soloed = None if soloed == index else index
+
+
+def isChannelSolo(index, useGlobalIndex=False):
+    return 1 if soloed == index else 0
