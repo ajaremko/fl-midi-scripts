@@ -90,6 +90,7 @@ class ScriptTestCase(unittest.TestCase):
         ui.snap_mode = midi.Snap_None
         ui.in_popup_menu = False
         ui.hints = []
+        ui.event_editors = []
         channels.shown_forms = []
         channels.quantized = []
         channels.pitch = {}
@@ -104,6 +105,10 @@ class ScriptTestCase(unittest.TestCase):
         patterns.current = 1
         patterns.selected = set()
         del general.calls[:]
+        general.rec_events = []
+        general.rec_values = {}
+        channels.fx_tracks = {}
+        channels.inc_calls = []
         general.safe = True
         diagnostics.ENABLED = False
         mixer.track_volume = {0: 0.8}
@@ -333,7 +338,7 @@ class ScaffoldTest(ScriptTestCase):
                 self.assertEqual(channels.shown_forms, [])
 
     def test_unbound_knob_passes_through(self):
-        self.assertFalse(self.send(cc(controls.BY_ID["E1"].number, 64)).handled)
+        self.assertFalse(self.send(cc(controls.BY_ID["E9"].number, 1)).handled)  # knob page 2
 
     def test_unmapped_message_is_swallowed(self):
         self.assertTrue(self.send(cc(0)).handled)  # unmapped: logged, not passed to FL
@@ -824,6 +829,71 @@ class FeedbackGuardTest(ScriptTestCase):
         self.assertTrue(device.sent)  # LEDs sent again
 
 
+class ChannelKnobsTest(ScriptTestCase):
+    """E1-E8: the selected channel's settings, as channel REC events."""
+
+    SET = midi.REC_UpdateValue | midi.REC_UpdateControl | midi.REC_ShowHint
+
+    def turn(self, knob, delta):
+        return self.send(cc(controls.BY_ID[knob].number, delta & 0x7F))  # relative, two's complement
+
+    def test_each_knob_steps_its_parameter_on_the_selected_channel(self):
+        channels.selected = 2
+        base = channels.getRecEventId(2)
+        for knob, offset in (("E1", midi.REC_Chan_Vol), ("E2", midi.REC_Chan_Pan), ("E3", midi.REC_Chan_Pitch),
+                             ("E5", midi.REC_Chan_GateTime),
+                             ("E6", midi.REC_Chan_TimeOfs), ("E7", midi.REC_Chan_SwingMix)):
+            with self.subTest(knob=knob):
+                general.rec_events = []
+                self.assertTrue(self.turn(knob, +3).handled)
+                self.turn(knob, -1)
+                self.assertEqual(general.rec_events, [(base + offset, 3, self.SET), (base + offset, 2, self.SET)])
+                self.assertEqual(channels.inc_calls[-1], (base + offset, -1, midi.EKRes))
+
+    def test_range_knob_sets_the_pitch_range_a_semitone_per_step(self):
+        channels.selected = 3
+        self.turn("E4", +5)  # one semitone per message, however fast
+        self.assertEqual(channels.pitch_range[3], 3)  # from FL's default 2
+        self.assertEqual(ui.hints[-1], "Pitch range: +/-3 semitones")
+        for _ in range(60):
+            self.turn("E4", +1)
+        self.assertEqual(channels.pitch_range[3], pads.MAX_PITCH_RANGE)
+        for _ in range(60):
+            self.turn("E4", -1)
+        self.assertEqual(channels.pitch_range[3], 1)
+        self.assertEqual(general.rec_events, [])  # not a REC event
+
+    def test_mixer_knob_routes_one_track_per_step_within_range(self):
+        channels.selected = 1
+        event_id = channels.getRecEventId(1) + midi.REC_Chan_FXTrack
+        self.turn("E8", +5)  # one track per message, however fast
+        self.assertEqual(general.rec_events[-1], (event_id, 1, midi.REC_Control | midi.REC_UpdateControl))
+        self.assertEqual(ui.hints[-1], "Mixer track: 1 Insert 1")
+        for _ in range(20):
+            self.turn("E8", +1)
+        self.assertEqual(channels.getTargetFxTrack(1), mixer.track_count - 2)  # stops before "Current"
+        for _ in range(20):
+            self.turn("E8", -1)
+        self.assertEqual(channels.getTargetFxTrack(1), 0)
+        self.assertEqual(ui.hints[-1], "Mixer track: 0 Master")
+
+    def test_nothing_without_a_selected_channel(self):
+        channels.selected = -1
+        self.turn("E1", +1)
+        self.turn("E8", +1)
+        self.assertEqual(general.rec_events, [])
+        self.assertEqual(ui.hints[-1], "No channel selected")
+
+    def test_the_knobs_work_the_same_in_shift_mode(self):
+        self.controller.state.mode = SHIFT
+        self.turn("E1", +1)
+        self.assertEqual(len(general.rec_events), 1)
+
+    def test_page_two_knobs_still_pass_through(self):
+        self.assertFalse(self.turn("E9", +1).handled)
+        self.assertEqual(general.rec_events, [])
+
+
 class WindowButtonsTest(ScriptTestCase):
     def lit_window_buttons(self):
         return [button for button in WINDOW_BUTTONS if self.controller.leds._sent[button]]
@@ -1113,10 +1183,10 @@ class ShiftModeTest(ScriptTestCase):
         self.assertTrue(self.led("F1"))
         self.assertTrue(self.led("VOLUME"))
         self.shift()
-        for control_id in ("F8", "BROWSE", "PLAY", "REC"):
+        for control_id in ("F8", "BROWSE", "PLAY", "REC", "ALL", "NOTE_REPEAT", "RESTART", "SELECT"):
             self.assertTrue(self.led(control_id), control_id)
-        # ALL's shift function (save) is still a placeholder, so it isn't highlighted.
-        for control_id in ("F1", "MUTE", "RESTART", "VOLUME", "F5", "ALL"):
+        # Controls without a shift function (or with only a placeholder) aren't highlighted.
+        for control_id in ("F1", "MUTE", "VOLUME", "F5", "ERASE"):
             self.assertFalse(self.led(control_id), control_id)
 
     def test_shift_browse_opens_plugin_picker(self):
@@ -1158,10 +1228,38 @@ class ShiftModeTest(ScriptTestCase):
         self.assertEqual(self.led("PAD_1"), colors.ORANGE)
         self.assertEqual(self.led("PAD_4"), colors.OFF)
 
+    def test_shift_all_note_repeat_and_restart_send_their_commands(self):
+        for button, command in (("ALL", midi.FPT_Save), ("NOTE_REPEAT", midi.FPT_TapTempo),
+                                ("RESTART", midi.FPT_LoopRecord)):
+            with self.subTest(button=button):
+                self.controller.state.mode = SHIFT
+                del transport.calls[:]
+                self.send(cc(controls.BY_ID[button].number))
+                self.assertEqual(transport.calls, [("globalTransport", command, 1)])
+                self.assertEqual(self.controller.state.mode, SHIFT)  # shift stays on
+
+    def test_shift_note_repeat_taps_tempo_in_bridge_mode_too(self):
+        bridge_script.controller = MaschineMk2(bridge=True)
+        bridge_script.OnInit()
+        bridge_script.controller.state.mode = SHIFT
+        del transport.calls[:]
+        bridge_script.OnMidiMsg(cc(controls.BY_ID["NOTE_REPEAT"].number))
+        self.assertEqual(transport.calls, [("globalTransport", midi.FPT_TapTempo, 1)])
+        self.assertFalse(bridge_script.controller.state.note_repeat)  # not toggled
+
+    def test_shift_select_opens_the_selected_channels_piano_roll(self):
+        channels.selected = 2
+        self.shift()
+        self.send(cc(controls.BY_ID["SELECT"].number))
+        self.assertEqual(ui.event_editors, [(channels.getRecEventId(2) + midi.REC_Chan_PianoRoll, midi.EE_PR)])
+        channels.selected = -1
+        self.send(cc(controls.BY_ID["SELECT"].number, 0))
+        self.assertEqual(len(ui.event_editors), 1)  # no channel selected: nothing
+
     def test_shift_controls_are_the_shift_layer(self):
         # Only real functions count: unimplemented(...) placeholders are left out.
-        self.assertTrue({"PLAY", "REC", "PAD_1", "PAD_11"} <= bindings.MODE_CONTROLS[SHIFT])
-        self.assertFalse({"ALL", "PAD_4"} & bindings.MODE_CONTROLS[SHIFT])
+        self.assertTrue({"PLAY", "REC", "PAD_1", "PAD_11", "ALL"} <= bindings.MODE_CONTROLS[SHIFT])
+        self.assertFalse({"PAD_4", "PAD_6"} & bindings.MODE_CONTROLS[SHIFT])
         self.assertTrue(bindings.MODE_CONTROLS[SHIFT] <= frozenset(bindings.LAYERS[SHIFT]))
 
 
@@ -1242,12 +1340,18 @@ class NewModeTest(ScriptTestCase):
 
     def test_new_mode_lights(self):
         self.press("F7")
-        for control_id in ("F7", "BROWSE", "PATTERN"):
+        for control_id in ("F7", "BROWSE", "PATTERN", "ALL"):
             self.assertTrue(self.led(control_id), control_id)
-        for control_id in ("F8", "F1", "PLAY", "ALL"):
+        for control_id in ("F8", "F1", "PLAY", "RESTART"):
             self.assertFalse(self.led(control_id), control_id)
         for control_id in PAD_IDS + GROUP_IDS:
             self.assertEqual(self.led(control_id), colors.OFF, control_id)
+
+    def test_new_all_saves_a_new_version_once(self):
+        self.press("F7")
+        self.press("ALL")
+        self.assertEqual(transport.calls, [("globalTransport", midi.FPT_SaveNew, 1)])
+        self.assertIsNone(self.controller.state.mode)
 
     def test_new_mode_controls_are_the_new_layer(self):
         self.assertEqual(bindings.MODE_CONTROLS[NEW], frozenset(bindings.LAYERS[NEW]))

@@ -87,3 +87,22 @@ def isChannelSelected(index, useGlobalIndex=False):
 
 def showCSForm(index, state=1, useGlobalIndex=False):
     shown_forms.append((index, state))
+
+
+def getRecEventId(index, useGlobalIndex=False):
+    return (index + 1) << 16  # a distinct base per channel
+
+
+fx_tracks = {}  # channel index -> mixer track (getTargetFxTrack)
+inc_calls = []  # (eventId, step, res) passed to incEventValue
+
+
+def incEventValue(eventId, step, res=1.0 / 64):
+    import general
+    inc_calls.append((eventId, step, res))
+    return general.rec_values.get(eventId, 0) + step  # the stub steps in whole units
+
+
+def getTargetFxTrack(index, useGlobalIndex=False):
+    import general
+    return general.rec_values.get(getRecEventId(index) + 8, fx_tracks.get(index, 0))

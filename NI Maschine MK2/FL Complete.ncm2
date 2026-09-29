@@ -624,7 +624,8 @@
           <reaction>ondown</reaction>
         </button>
         <knob version="1" id="Knob1">
-          <controller>14</controller>
+          <name>Volume</name>
+          <controller mode="comp">14</controller>
           <channel>0</channel>
           <min>0</min>
           <max>127</max>
@@ -634,7 +635,8 @@
           <bipolar>off</bipolar>
         </knob>
         <knob version="1" id="Knob2">
-          <controller>15</controller>
+          <name>Pan</name>
+          <controller mode="comp">15</controller>
           <channel>0</channel>
           <min>0</min>
           <max>127</max>
@@ -644,7 +646,8 @@
           <bipolar>off</bipolar>
         </knob>
         <knob version="1" id="Knob3">
-          <controller>16</controller>
+          <name>Pitch</name>
+          <controller mode="comp">16</controller>
           <channel>0</channel>
           <min>0</min>
           <max>127</max>
@@ -654,7 +657,8 @@
           <bipolar>off</bipolar>
         </knob>
         <knob version="1" id="Knob4">
-          <controller>17</controller>
+          <name>Range</name>
+          <controller mode="comp">17</controller>
           <channel>0</channel>
           <min>0</min>
           <max>127</max>
@@ -664,7 +668,8 @@
           <bipolar>off</bipolar>
         </knob>
         <knob version="1" id="Knob5">
-          <controller>18</controller>
+          <name>Gate</name>
+          <controller mode="comp">18</controller>
           <channel>0</channel>
           <min>0</min>
           <max>127</max>
@@ -674,7 +679,8 @@
           <bipolar>off</bipolar>
         </knob>
         <knob version="1" id="Knob6">
-          <controller>19</controller>
+          <name>Shift</name>
+          <controller mode="comp">19</controller>
           <channel>0</channel>
           <min>0</min>
           <max>127</max>
@@ -684,7 +690,8 @@
           <bipolar>off</bipolar>
         </knob>
         <knob version="1" id="Knob7">
-          <controller>20</controller>
+          <name>Swing</name>
+          <controller mode="comp">20</controller>
           <channel>0</channel>
           <min>0</min>
           <max>127</max>
@@ -694,7 +701,8 @@
           <bipolar>off</bipolar>
         </knob>
         <knob version="1" id="Knob8">
-          <controller>21</controller>
+          <name>Mixer</name>
+          <controller mode="comp">21</controller>
           <channel>0</channel>
           <min>0</min>
           <max>127</max>
@@ -778,7 +786,7 @@
           <reaction>ondown</reaction>
         </button>
         <knob version="1" id="Knob1">
-          <controller>22</controller>
+          <controller mode="comp">22</controller>
           <channel>0</channel>
           <min>0</min>
           <max>127</max>
@@ -788,7 +796,7 @@
           <bipolar>off</bipolar>
         </knob>
         <knob version="1" id="Knob2">
-          <controller>23</controller>
+          <controller mode="comp">23</controller>
           <channel>0</channel>
           <min>0</min>
           <max>127</max>
@@ -798,7 +806,7 @@
           <bipolar>off</bipolar>
         </knob>
         <knob version="1" id="Knob3">
-          <controller>24</controller>
+          <controller mode="comp">24</controller>
           <channel>0</channel>
           <min>0</min>
           <max>127</max>
@@ -808,7 +816,7 @@
           <bipolar>off</bipolar>
         </knob>
         <knob version="1" id="Knob4">
-          <controller>25</controller>
+          <controller mode="comp">25</controller>
           <channel>0</channel>
           <min>0</min>
           <max>127</max>
@@ -818,7 +826,7 @@
           <bipolar>off</bipolar>
         </knob>
         <knob version="1" id="Knob5">
-          <controller>26</controller>
+          <controller mode="comp">26</controller>
           <channel>0</channel>
           <min>0</min>
           <max>127</max>
@@ -828,7 +836,7 @@
           <bipolar>off</bipolar>
         </knob>
         <knob version="1" id="Knob6">
-          <controller>27</controller>
+          <controller mode="comp">27</controller>
           <channel>0</channel>
           <min>0</min>
           <max>127</max>
@@ -838,7 +846,7 @@
           <bipolar>off</bipolar>
         </knob>
         <knob version="1" id="Knob7">
-          <controller>28</controller>
+          <controller mode="comp">28</controller>
           <channel>0</channel>
           <min>0</min>
           <max>127</max>
@@ -848,7 +856,7 @@
           <bipolar>off</bipolar>
         </knob>
         <knob version="1" id="Knob8">
-          <controller>29</controller>
+          <controller mode="comp">29</controller>
           <channel>0</channel>
           <min>0</min>
           <max>127</max>

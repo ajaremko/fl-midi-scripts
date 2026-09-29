@@ -4,6 +4,7 @@ focused = None
 snap_mode = 3  # Snap_None
 in_popup_menu = False
 hints = []  # messages passed to setHintMsg
+event_editors = []  # (eventId, mode) passed to openEventEditor
 
 
 def getFocused(window):
@@ -35,3 +36,7 @@ def isInPopupMenu():
 
 def setHintMsg(message):
     hints.append(message)
+
+
+def openEventEditor(eventId, mode, newWindow=0):
+    event_editors.append((eventId, mode))

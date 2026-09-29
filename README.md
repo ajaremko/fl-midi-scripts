@@ -19,6 +19,12 @@ Of the 3 controllers, its responsible for
 
 This allows the other two controllers to focus on doing what they do best - being a sequencer and a keyboard respectively.
 
+### Template: relative knobs
+
+E1–E16 must be **relative (two's complement)** in the Controller Editor template, like the master encoder. The repo's [FL Complete.ncm2](NI%20Maschine%20MK2/FL%20Complete.ncm2) is set up that way, with the knob page 1 labels (Volume, Pan, Pitch, Range, Gate, Shift, Swing, Mixer). Open it in Controller Editor and send it to the MK2.
+- **Pitfall, knobs left absolute:** E1–E8 barely move their parameters and can go the wrong way, because absolute values are read as small relative steps.
+- **Pitfall, template changed in Controller Editor:** save it back over the repo's file, so the tests (`test_template.py`) keep the script and the template in step.
+
 ### Hardware or Bridge?
 
 The MK2 script comes as two entry scripts. Pick one as the MK2's **Controller type** in FL's MIDI settings:
@@ -157,17 +163,17 @@ These are all of the controls present on the hardware with their location, label
 | Top    | F15         |               | Button  |                                         |                                                     |
 | Top    | F16         |               | Button  |                                         |                                                     |
 | Top    | Sampling    |               | Button  |                                         |                                                     |
-| Top    | All         | Save          | Button  | save project (shift mode)               |                                                     |
+| Top    | All         | Save          | Button  | save the project (shift mode); save a new version of it (new mode, FL's Save new version) | lit in shift and new mode |
 | Top    | Auto        |               | Button  |                                         |                                                     |
-| Top    | E1          |               | Encoder |                                         |                                                     |
-| Top    | E2          |               | Encoder |                                         |                                                     |
-| Top    | E3          |               | Encoder |                                         |                                                     |
-| Top    | E4          |               | Encoder |                                         |                                                     |
-| Top    | E5          |               | Encoder |                                         |                                                     |
-| Top    | E6          |               | Encoder |                                         |                                                     |
-| Top    | E7          |               | Encoder |                                         |                                                     |
-| Top    | E8          |               | Encoder |                                         |                                                     |
-| Top    | E9          |               | Encoder |                                         |                                                     |
+| Top    | E1          | Volume        | Encoder | selected channel's volume | relative; labelled "Volume" on the display; FL's hint bar shows the value |
+| Top    | E2          | Pan           | Encoder | selected channel's pan | relative; labelled "Pan" on the display; FL's hint bar shows the value |
+| Top    | E3          | Pitch         | Encoder | selected channel's pitch (the knob shift Pads 13–16 transpose) | relative; labelled "Pitch" on the display; FL's hint bar shows the value |
+| Top    | E4          | Range         | Encoder | selected channel's pitch range, the reach of E3's pitch knob: one semitone per step, from ±1 to ±48 | relative; labelled "Range" on the display; FL's hint bar shows the range |
+| Top    | E5          | Gate          | Encoder | selected channel's gate time (Misc functions, Time) | relative; labelled "Gate" on the display; FL's hint bar shows the value |
+| Top    | E6          | Shift         | Encoder | selected channel's time shift (Misc functions, Time) | relative; labelled "Shift" on the display; FL's hint bar shows the value |
+| Top    | E7          | Swing         | Encoder | selected channel's swing mix (Misc functions, Time) | relative; labelled "Swing" on the display; FL's hint bar shows the value |
+| Top    | E8          | Mixer         | Encoder | route the selected channel to the next / previous mixer track, one per step (Master to the last insert) | relative; labelled "Mixer" on the display; FL's hint bar shows the value |
+| Top    | E9          |               | Encoder | not assigned yet (E9–E16, knob page 2): passed through to FL, so FL's Link to controller can use them | relative |
 | Top    | E10         |               | Encoder |                                         |                                                     |
 | Top    | E11         |               | Encoder |                                         |                                                     |
 | Top    | E12         |               | Encoder |                                         |                                                     |
@@ -181,10 +187,10 @@ These are all of the controls present on the hardware with their location, label
 | Master | Left        |               | Button  | left (like the left arrow key in the focused window) |                                                     |
 | Master | Right       |               | Button  | right (like the right arrow key in the focused window) |                                                     |
 | Master | Enter       |               | Button  | enter; in the Channel Rack, open the selected channel's plugin |                                                     |
-| Master | Note Repeat | Tap           | Button  | (Bridge controller type only) press to cycle **Off → On → Triplets**. On: held pads retrigger at a straight division (1/4, 1/8, 1/16, 1/32); Triplets: at a triplet division (1/4T, 1/8T, 1/16T, 1/32T). Locked to FL's clock while playing, the first note too: a press within a short grace window after a grid line (1/8 of the division, at most 30 ms) plays at once, any other press plays on the next grid line, and a quick tap still plays one note there. While on, turning the master encoder changes the division within the mode (clockwise faster); switching modes keeps the division (1/16 ↔ 1/16T). FL's hint bar shows the mode and division. Independent of FL's grid snap | lit in On and Triplets; needs the MK2 bridge running, and Send master sync for repeats locked to the song |
+| Master | Note Repeat | Tap           | Button  | (Bridge controller type only) press to cycle **Off → On → Triplets**. On: held pads retrigger at a straight division (1/4, 1/8, 1/16, 1/32); Triplets: at a triplet division (1/4T, 1/8T, 1/16T, 1/32T). Locked to FL's clock while playing, the first note too: a press within a short grace window after a grid line (1/8 of the division, at most 30 ms) plays at once, any other press plays on the next grid line, and a quick tap still plays one note there. While on, turning the master encoder changes the division within the mode (clockwise faster); switching modes keeps the division (1/16 ↔ 1/16T). FL's hint bar shows the mode and division. Independent of FL's grid snap. Shift: tap tempo (both controller types) | lit in On and Triplets; needs the MK2 bridge running, and Send master sync for repeats locked to the song |
 | Master | Encoder     |               | Encoder | turn: navigate the focused window (up/down, or left/right in the mixer) or an open menu; press: enter (browser, menus), open menu (mixer, playlist, piano roll), open the selected channel's item (right-click) menu (channel rack); a press acts on release, and not at all if the encoder turned while held. Push and turn: select a range of channels (channel rack) or mixer tracks (mixer), starting at the selected channel or current track | While Note Repeat is on, turning only changes its rate. Otherwise Volume / Swing / Tempo overrides take priority for turning, but push and turn in the channel rack or mixer always selects. Needs Encoder Push in Gate mode in the template (reload the updated .ncm2 in Controller Editor) |
 | Groups | A -> H      |               | Button  | select pad group: the pads play 16 notes from group × 16 (A 0–15, B 16–31 … H 112–127; middle C is Group D pad 13). While the selected channel is FPC: Group E plays bank A and Group F bank B, in FPC's pad colours; empty pads and the other groups are dark and silent; selecting an FPC jumps to Group E | lit in the selected channel's colour, brightest when selected; starts on Group D; only E and F lit while FPC is selected |
-| Transport | Restart     | Loop          | Button  | stop, jump to the start and play        |                                                     |
+| Transport | Restart     | Loop          | Button  | stop, jump to the start and play; shift: toggle FL's loop recording | lit in shift mode |
 | Transport | Left        | Step Left     | Button  | move the song position to the previous snap grid line | uses FL's main snap (toolbar); set the Playlist and Piano Roll snap to "Main" so the playhead lands on the same grid |
 | Transport | Right       | Step Right    | Button  | move the song position to the next snap grid line | uses FL's main snap (toolbar); set the Playlist and Piano Roll snap to "Main" so the playhead lands on the same grid |
 | Transport | Grid        | Rec Mode      | Button  | toggle encoder override: the encoder steps the main snap setting | illuminated while the override is on |
@@ -196,7 +202,7 @@ These are all of the controls present on the hardware with their location, label
 | Pads   | Pad Mode    | Keyboard      | Button  | toggle fixed velocity: pads play at full velocity | illuminated while fixed velocity is on |
 | Pads   | Navigate    | Mix           | Button  | toggle encoder override: the encoder jogs between open windows | illuminated while the override is on |
 | Pads   | Duplicate   |               | Button  | duplicate (clone) the current pattern   |                                                     |
-| Pads   | Select      | Events        | Button  |                                         |                                                     |
+| Pads   | Select      | Events        | Button  | shift: open the selected channel's Piano Roll (nothing if no channel is selected) | lit in shift mode |
 | Pads   | Solo        |               | Button  | solo the selected Channel Rack channel (toggle) | lit while the selected channel is soloed       |
 | Pads   | Mute        | Choke         | Button  | mute the selected Channel Rack channel (toggle) | lit while the selected channel is muted (also while another channel is soloed) |
 | Pads   | Pad 1       | Undo          | Pad     | undo (shift mode)                       | lit orange in shift mode                            |
@@ -226,8 +232,8 @@ These are all of the controls present on the hardware with their location, label
 
 F8 toggles shift mode and F7 toggles new mode. Only one of them is on at a time: turning one on turns the other off. The mode's button stays lit while it is on.
 
-- **Shift mode** gives controls their "(shift mode)" function above, such as Browse (plugin picker), Play (metro), Rec (count-in) and the pads (undo, redo, quantize, clear, copy, paste, …). It stays on until F8 is pressed again. In shift mode the pads never play notes.
-- **New mode** gives controls their "(new mode)" function: Browse opens FL's Add menu to add a channel, and Pattern starts a new pattern. New mode is one-shot: using a new-mode function turns it off. Controls without a new-mode function keep their normal function, and new mode stays on.
+- **Shift mode** gives controls their "(shift mode)" function above, such as Browse (plugin picker), Play (metro), Rec (count-in), All (save), Note Repeat (tap tempo), Restart (loop recording), Select (the Piano Roll) and the pads (undo, redo, quantize, clear, copy, paste, …). It stays on until F8 is pressed again. In shift mode the pads never play notes.
+- **New mode** gives controls their "(new mode)" function: Browse opens FL's Add menu to add a channel, Pattern starts a new pattern, and All saves a new version of the project. New mode is one-shot: using a new-mode function turns it off. Controls without a new-mode function keep their normal function, and new mode stays on.
 
 While either mode is on, only its button and the controls with a *working* function in that mode are lit; functions that aren't written yet (or can't be done from an FL script) stay unlit. In shift mode the pads light in colours by function: undo/redo/compare orange, copy/paste cyan, quantize green, nudge (tempo) blue, clear red, cut yellow, transpose (semitone/octave) purple. Every other button goes dim, and the pads and Group buttons without a function go dark. The usual state lights (the focused window, Play/Rec) come back when the mode is turned off. Entering either mode also turns off any active encoder override.
 

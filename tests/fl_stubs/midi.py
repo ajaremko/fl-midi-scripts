@@ -29,6 +29,13 @@ FPT_PatternJog = 55
 FPT_SnapMode = 49
 FPT_ShuffleJog = 122
 FPT_CountDown = 115
+FPT_Save = 92
+FPT_SaveNew = 93
+FPT_TapTempo = 106
+FPT_LoopRecord = 113
+
+REC_Chan_PianoRoll = 15  # the stub's value; FL's own midi module defines the real one
+EE_PR = 1
 
 SONGLENGTH_ABSTICKS = 2
 
@@ -54,3 +61,19 @@ widChannelRack = 1
 widPlaylist = 2
 widPianoRoll = 3
 widBrowser = 4
+
+# Channel REC event offsets and flags (general.processRECEvent)
+REC_Chan_Vol = 0
+REC_Chan_Pan = 1
+REC_Chan_Pitch = 4
+REC_Chan_FXTrack = 8
+REC_Chan_GateTime = 9
+REC_Chan_TimeOfs = 11
+REC_Chan_SwingMix = 12
+REC_Chan_OfsPitch = 18
+REC_UpdateValue = 1
+REC_GetValue = 2
+REC_ShowHint = 4
+REC_UpdateControl = 32
+REC_Control = REC_UpdateValue | REC_UpdateControl
+EKRes = 1.0 / 64

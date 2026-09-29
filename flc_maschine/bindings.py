@@ -15,6 +15,7 @@ import midi
 from .handlers.common import unimplemented
 from .handlers import (
     channel_controls,
+    channel_knobs,
     edit,
     encoder,
     groups,
@@ -83,6 +84,13 @@ _base = {
 for _i in range(9, 17):
     _base["F%d" % _i] = unimplemented()
 
+# E1-E8: the selected channel's settings (E9-E16, knob page 2, have no binding yet and pass
+# through to FL).
+for _i in (1, 2, 3, 5, 6, 7):
+    _base["E%d" % _i] = channel_knobs.turn
+_base["E4"] = channel_knobs.pitch_range
+_base["E8"] = channel_knobs.mixer_track
+
 for _index, _letter in enumerate("ABCDEFGH"):
     _base["GROUP_" + _letter] = groups.select(_index)
 
@@ -92,7 +100,10 @@ for _i in range(1, 17):
 
 _shift = {
     "BROWSE": ui_commands.send(midi.FPT_F8),  # plugin picker
-    "ALL": unimplemented("save project"),
+    "ALL": ui_commands.send(midi.FPT_Save),  # Save
+    "NOTE_REPEAT": ui_commands.send(midi.FPT_TapTempo),  # Tap
+    "RESTART": ui_commands.send(midi.FPT_LoopRecord),  # Loop: toggle loop recording
+    "SELECT": channel_controls.open_piano_roll,  # Events
     "PLAY": transport_controls.metronome,
     "REC": transport_controls.count_in,
     # Pads become edit actions.
@@ -121,6 +132,7 @@ _new = {
         ui_commands.open_menu_then(midi.FPT_Menu, [midi.FPT_Right] * 3)
     ),
     "PATTERN": modes.once(pattern_controls.new_pattern),
+    "ALL": modes.once(ui_commands.send(midi.FPT_SaveNew)),  # save new version
 }
 
 LAYERS = {

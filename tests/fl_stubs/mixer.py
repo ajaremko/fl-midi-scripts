@@ -55,3 +55,7 @@ tempo = 120.0  # getCurrentTempo, in BPM
 
 def getCurrentTempo(asInt=0):
     return tempo
+
+
+def getTrackName(index):
+    return "Master" if index == 0 else "Insert %d" % index

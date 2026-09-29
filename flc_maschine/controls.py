@@ -108,7 +108,8 @@ def _build():
         )
 
     # F1-F16 and E1-E16: the buttons above and knobs below the displays, on two knob pages.
-    # F1-F6 are trigger buttons; the rest are toggle buttons.
+    # F1-F6 are trigger buttons; the rest are toggle buttons. The knobs are relative (two's
+    # complement), like the master encoder.
     for i in range(16):
         page, slot = divmod(i, 8)
         mode = TRIGGER if i < 6 else TOGGLE
@@ -116,7 +117,7 @@ def _build():
             Control("F%d" % (i + 1), "F%d" % (i + 1), "Top", BUTTON, CC, 46 + i, mode, MONO, ("page", page, "Button%d" % (slot + 1)))
         )
         controls.append(
-            Control("E%d" % (i + 1), "E%d" % (i + 1), "Top", ENCODER, CC, 14 + i, ABSOLUTE, None, ("page", page, "Knob%d" % (slot + 1)))
+            Control("E%d" % (i + 1), "E%d" % (i + 1), "Top", ENCODER, CC, 14 + i, COMP, None, ("page", page, "Knob%d" % (slot + 1)))
         )
 
     # Pads 1-16, numbered from the bottom left as on the hardware. The pads always send
