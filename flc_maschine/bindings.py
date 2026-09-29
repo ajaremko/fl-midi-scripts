@@ -19,6 +19,7 @@ from .handlers import (
     encoder,
     groups,
     modes,
+    note_repeat,
     pads,
     pattern_controls,
     transport_controls,
@@ -141,10 +142,19 @@ MODE_CONTROLS = {
 }
 
 
-def lookup(state, control_id):
+# Base-layer functions that only exist with the MK2 bridge (the Bridge entry script). They take
+# the place of the base layer's placeholders when the controller runs in bridge mode.
+BRIDGE_BASE = {
+    "NOTE_REPEAT": note_repeat.toggle,
+}
+
+
+def lookup(state, control_id, bridge=False):
     """Return the handler for control_id in the highest-priority active layer, or None."""
     for layer in state.active_layers():
-        handler = LAYERS[layer].get(control_id)
+        handler = BRIDGE_BASE.get(control_id) if bridge and layer == BASE else None
+        if handler is None:
+            handler = LAYERS[layer].get(control_id)
         if handler is not None:
             return handler
     return None

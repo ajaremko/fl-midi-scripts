@@ -1,9 +1,13 @@
-# name=FL Complete Maschine MK2
+# name=FL Complete Maschine MK2 (Hardware)
+"""
+Entry script for the MK2 on its own MIDI ports, without the MK2 bridge. Note Repeat isn't
+available (it needs the bridge's timing); see device_FLC_MaschineMK2_Bridge.py.
+"""
 
 from flc_maschine import diagnostics
 from flc_maschine.controller import MaschineMk2
 
-controller = MaschineMk2()
+controller = MaschineMk2(bridge=False)
 
 
 def OnInit():

@@ -5,6 +5,7 @@ here leaves the renderer a pure function that can be tested without FL Studio.
 
 import channels
 import midi
+import mixer
 import transport
 import ui
 
@@ -16,11 +17,11 @@ WINDOWS = (midi.widMixer, midi.widChannelRack, midi.widPlaylist, midi.widPianoRo
 
 class FlSnapshot:
     __slots__ = ("focused_window", "playing", "recording", "song_mode", "channel_color", "channel_solo",
-                 "channel_muted", "fpc_channel", "fpc_banks")
+                 "channel_muted", "fpc_channel", "fpc_banks", "tempo")
 
     def __init__(self, focused_window=None, playing=False, recording=False, song_mode=False,
                  channel_color=None, channel_solo=False, channel_muted=False, fpc_channel=None,
-                 fpc_banks=None):
+                 fpc_banks=None, tempo=120.0):
         self.focused_window = focused_window  # one of WINDOWS, or None
         self.playing = playing
         self.recording = recording
@@ -30,6 +31,7 @@ class FlSnapshot:
         self.channel_muted = channel_muted  # selected channel is muted (also while another is soloed)
         self.fpc_channel = fpc_channel  # selected channel if it is an FPC, else None
         self.fpc_banks = fpc_banks  # fpc.read_banks() of that FPC, else None
+        self.tempo = tempo  # BPM, for the MK2 bridge's Note Repeat while FL is stopped (bridge_link.py)
 
     @classmethod
     def read(cls):
@@ -50,4 +52,12 @@ class FlSnapshot:
             channel_muted=channel >= 0 and bool(channels.isChannelMuted(channel)),
             fpc_channel=fpc_channel,
             fpc_banks=fpc.read_banks(fpc_channel) if fpc_channel is not None else None,
+            tempo=_bpm(mixer.getCurrentTempo(1)),
         )
+
+
+def _bpm(value):
+    """Tempo in BPM. Komplete Kontrol found getCurrentTempo's asInt argument works the reverse of
+    the manual, so accept either form: BPM, or BPM x 1000."""
+    value = float(value)
+    return value / 1000.0 if value > 1000 else value

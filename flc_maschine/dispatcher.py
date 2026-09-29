@@ -19,7 +19,7 @@ def dispatch(controller, ev):
         # Aftertouch belongs to the press too.
         handler = state.held[control_id]
     else:
-        handler = bindings.lookup(state, control_id)
+        handler = bindings.lookup(state, control_id, controller.bridge)
         # Only gate controls send a release; trigger and toggle buttons are never "held".
         if handler is not None and ev.is_press and ev.control.mode == controls.GATE:
             state.held[control_id] = handler

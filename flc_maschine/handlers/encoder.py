@@ -19,7 +19,7 @@ import transport
 import ui
 
 from .. import events
-from . import selection
+from . import note_repeat, selection
 from .common import on_press
 
 VOLUME_STEP = 0.05  # master volume, 0-1, per encoder step
@@ -124,6 +124,12 @@ def turn(controller, ev):
     if ev.kind != events.TURN:
         return
     state = controller.state
+    if state.note_repeat:
+        # While Note Repeat is on (bridge mode only), turning only changes its rate.
+        if state.push_held:
+            state.push_turned = True  # no click on release either
+        note_repeat.step_rate(state, ev.delta)
+        return
     if state.push_held:
         state.push_turned = True
         if selection.drag(state, ev.delta):  # takes priority over overrides and navigation

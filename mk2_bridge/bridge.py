@@ -1,13 +1,18 @@
 """
 MK2 bridge: a small program that sits between the Maschine MK2 and FL Studio.
 
-    MK2 --USB--> bridge --> loopMIDI "MK2 Bridge In"  --> FL (the FL Complete MK2 script)
-    MK2 <--USB-- bridge <-- loopMIDI "MK2 Bridge Out" <-- FL (LEDs)
+    MK2 --USB--> bridge --> loopMIDI "MK2 Bridge In"  --> FL (the FL Complete MK2 Bridge script)
+    MK2 <--USB-- bridge <-- loopMIDI "MK2 Bridge Out" <-- FL (LEDs, Note Repeat state, MIDI clock)
 
-Phase 1 is a plain passthrough: everything the MK2 sends goes to FL unchanged, and everything FL
-sends goes to the MK2 unchanged, except MIDI clock and other real-time messages from FL's master
-sync, which the MK2 has no use for. Later phases (note repeat) add timing here, where a real timer
-is available, instead of in the FL script, which only gets irregular OnIdle calls.
+Everything the MK2 sends goes to FL, and everything FL sends goes to the MK2, with two exceptions:
+
+- Note Repeat. While it is on, a held pad is replayed to FL: its raw note-on again at the repeat
+  rate, and a note-off half a cell later. The script handles each repeat as an ordinary pad hit.
+  While FL is playing (its MIDI clock arriving) hits are locked to FL's clock and song position;
+  while stopped, a timer thread runs them at the tempo. This is why the bridge exists: FL scripts
+  only get irregular OnIdle calls, too uneven for note repeat.
+- Messages meant for the bridge are not passed on to the MK2: FL's MIDI clock and transport (from
+  "Send master sync"), and the script's Note Repeat state on MIDI channel 16 (see NoteRepeater).
 
 Runs on the Windows machine with FL Studio and the MK2, not in FL's embedded Python. Needs Python 3
 with mido and python-rtmidi (pip install -r requirements.txt) and loopMIDI with the two ports above.
@@ -21,15 +26,42 @@ README's "MK2 bridge" section.
 import argparse
 import logging
 import sys
+import threading
 import time
 
 DEVICE_NAME = "Maschine MK2"  # substring of the MK2's own port names
 TO_FL_NAME = "MK2 Bridge In"  # loopMIDI port FL reads the MK2 from (the script's input)
 FROM_FL_NAME = "MK2 Bridge Out"  # loopMIDI port FL sends LEDs to (the script's output)
 
-# Real-time and song position messages from FL's master sync. They mean nothing to the MK2, so
-# they are not passed on (phase 2 will use them to follow FL's clock).
+# Real-time and song position messages from FL's master sync. They mean nothing to the MK2; the
+# clock and transport ones drive Note Repeat.
 FL_ONLY_TYPES = frozenset(["clock", "start", "stop", "continue", "songpos", "active_sensing", "reset"])
+
+# The script's messages to the bridge: control changes on MIDI channel 16, which the MK2 template
+# never uses. Keep in step with flc_maschine/bridge_link.py.
+CONTROL_CHANNEL = 15
+CC_REPEAT = 1  # 0 off, 127 on
+CC_RATE, CC_RATE_LSB = 2, 34  # repeat rate in MIDI clocks, applied on the LSB
+CC_TEMPO, CC_TEMPO_LSB = 3, 35  # tempo x 10, applied on the LSB
+CC_PLAYING = 4  # FL playing: 0 stopped, 127 playing
+CC_NO_CLOCK = 126  # bridge -> script: FL is playing but no MIDI clock arrives
+CC_HELLO = 127  # bridge -> script: the bridge started, send everything
+
+CLOCKS_PER_BEAT = 24  # MIDI clock resolution
+CLOCKS_PER_SONGPOS = 6  # song position pointer counts sixteenth notes
+GATE = 0.5  # fraction of a repeat cell each hit sounds for
+MIN_SPACING = 0.5  # never hit a pad again sooner than this fraction of a repeat interval
+CLOCK_TIMEOUT = 0.25  # seconds without a clock before repeats fall back to the timer
+# While FL plays, a press this soon after a grid line plays at once (it counts as that line);
+# any later press is held back to the next grid line, so the first note is on the grid too.
+GRACE_FRACTION = 0.125  # of the repeat interval...
+GRACE_MAX = 0.030  # ...but at most this many seconds
+
+# Pad pressure (poly aftertouch) is thinned before it goes to FL: the MK2 sends it densely for every
+# held pad, and a burst of it while FL is busy (e.g. starting to record) overflows FL's MIDI input.
+PRESSURE_INTERVAL = 0.01  # seconds: at most one pressure message per pad this often
+FLOOD_WARN = 400  # messages to FL in one second above which the traffic is logged
+FLOOD_LOG_EVERY = 60.0  # seconds between traffic warnings
 
 log = logging.getLogger("mk2_bridge")
 
@@ -55,36 +87,470 @@ def find_port(names, wanted, exclude=()):
                     % (wanted, ", ".join(matches), found))
 
 
-class Bridge:
-    """Routes messages between the MK2 and FL. `to_fl` and `to_device` send one message each.
+class _Pad:
+    """A held pad being repeated."""
 
-    Each direction runs on its own input port's callback thread and sends to a different output
-    port, so the two directions never share a port.
+    __slots__ = ("channel", "note", "velocity", "on", "last_hit_pos", "last_hit_time", "off_pos",
+                 "next_hit", "off_at", "pending_first", "released")
+
+    def __init__(self, channel, note, velocity, now, pending_first=False):
+        self.channel = channel
+        self.note = note
+        self.velocity = velocity
+        # The press was held back to the next grid line: nothing has sounded yet.
+        self.pending_first = pending_first
+        self.released = False  # released before its held-back first note played (a quick tap)
+        self.on = not pending_first  # FL has the note on (the press was passed through)
+        # When it last sounded (the press counts): clock position (clock mode) and time.
+        self.last_hit_pos = None
+        self.last_hit_time = float("-inf") if pending_first else now
+        self.off_pos = None  # clock mode: position of the pending note-off
+        # Timer mode: the times of the next hit and the pending note-off.
+        self.next_hit = None
+        self.off_at = None
+
+
+class NoteRepeater:
+    """Note Repeat, as pure logic: no ports, threads or clock of its own, so it can be tested.
+
+    `emit(kind, channel, note, velocity)` sends a note to FL ("note_on" or "note_off").
+    `on_no_clock()` is called once per play when FL plays without sending a clock. Callers pass the
+    current time (seconds, any monotonic origin) and must not call in from two threads at once.
+
+    A pad never sounds twice within MIN_SPACING of an interval, and never twice at the same clock
+    position. FL's loop wrap otherwise hits twice at once: the clock at the end of the bar is on a
+    grid line, and so is song position 0 a few milliseconds later.
+
+    While FL's clock runs, the first note is quantized too. A press within the grace window after
+    the latest grid line (GRACE_FRACTION of an interval, at most GRACE_MAX) plays at once and counts
+    as that line. Any other press is held back and plays on the next grid line; a pad released
+    before then (a quick tap) still plays that one note, and its release isn't passed on.
     """
 
-    def __init__(self, to_fl, to_device, trace=False):
+    def __init__(self, emit, on_no_clock=None):
+        self.emit = emit
+        self.on_no_clock = on_no_clock
+        self.enabled = False
+        self.rate = 6  # MIDI clocks per repeat (a sixteenth note)
+        self.bpm = 120.0
+        self._rate_msb = 0
+        self._tempo_msb = 0
+        self.pads = {}  # (channel, note) -> _Pad
+        self.position = 0  # clock position of the next clock, from FL's start and song position
+        self.last_clock = None  # time the last clock arrived
+        self.line_pos = None  # clock position and time of the latest grid line of the current rate
+        self.line_time = None
+        self.stopped = False  # FL sent stop (and no start or continue since)
+        self.playing = False  # FL is playing, as the script reports it (CC 4)
+        self._play_seen = None  # when a repeat was first seen during this play
+        self._warned = False  # the no-clock warning was given during this play
+
+    # --- state from the script -------------------------------------------------------------
+
+    def control_change(self, control, value):
+        if control == CC_REPEAT:
+            enabled = value >= 64
+            if not enabled:
+                self.stop_all()
+            self.enabled = enabled
+        elif control == CC_RATE:
+            self._rate_msb = value
+        elif control == CC_RATE_LSB:
+            self.rate = max(1, (self._rate_msb << 7) | value)
+            self._reschedule()
+        elif control == CC_TEMPO:
+            self._tempo_msb = value
+        elif control == CC_TEMPO_LSB:
+            bpm = ((self._tempo_msb << 7) | value) / 10.0
+            if bpm > 0:
+                self.bpm = bpm
+        elif control == CC_PLAYING:
+            self.playing = value >= 64
+            if not self.playing:
+                self._play_seen = None
+                self._warned = False
+
+    def _reschedule(self):
+        # A new rate while pads repeat on the timer: count the new interval from each pad's last
+        # hit, not from a schedule made at the old rate. (In clock mode the next grid line of the
+        # new rate simply comes next.)
+        interval = self.interval()
+        for pad in self.pads.values():
+            if pad.next_hit is not None:
+                pad.next_hit = pad.last_hit_time + interval
+                pad.off_at = pad.last_hit_time + interval * GATE
+
+    # --- pads ------------------------------------------------------------------------------
+
+    def grace(self):
+        """Seconds after a grid line within which a press still counts as that line."""
+        return min(GRACE_FRACTION * self.interval(), GRACE_MAX)
+
+    def pad_on(self, channel, note, velocity, now):
+        """A pad pressed. Returns whether to pass the press to FL now; False holds it back to the
+        next grid line."""
+        if not self.enabled:
+            return True
+        key = (channel, note)
+        if self.clocked(now):
+            if self.line_time is not None and now - self.line_time <= self.grace():
+                pad = _Pad(channel, note, velocity, now)  # just after a line: it counts as that line
+                pad.last_hit_pos = self.line_pos
+                pad.off_pos = self.line_pos + self._gate_clocks()
+                self.pads[key] = pad
+                return True
+            self.pads[key] = _Pad(channel, note, velocity, now, pending_first=True)
+            return False
+        pad = _Pad(channel, note, velocity, now)  # FL stopped: play at once, repeat from here
+        interval = self.interval()
+        pad.next_hit = now + interval
+        pad.off_at = now + interval * GATE
+        self.pads[key] = pad
+        return True
+
+    def pad_off(self, channel, note, now):
+        """A pad released. Returns whether to pass the release to FL: only if its note is on."""
+        key = (channel, note)
+        pad = self.pads.get(key)
+        if pad is None:
+            return True
+        if pad.pending_first:
+            pad.released = True  # a quick tap: it still plays its one note on the grid line
+            return False
+        del self.pads[key]
+        return pad.on
+
+    def stop_all(self):
+        """Stop every repeat, releasing any note that is on. A pad still held then passes its own
+        release to FL, which ignores a note-off for a note that isn't on."""
+        for pad in self.pads.values():
+            self._off(pad)
+        self.pads.clear()
+
+    @property
+    def busy(self):
+        return bool(self.pads)
+
+    def _spaced(self, pad, now):
+        """Whether the pad's last hit is far enough back for another."""
+        return now - pad.last_hit_time >= MIN_SPACING * self.interval()
+
+    # --- FL's clock (clock mode) -------------------------------------------------------------
+
+    def clocked(self, now):
+        """Whether FL's clock is driving repeats: it's running and a clock arrived recently."""
+        return (not self.stopped and self.last_clock is not None
+                and now - self.last_clock <= CLOCK_TIMEOUT)
+
+    def start(self):
+        self.stopped = False
+        self._jump(0)
+
+    def cont(self):
+        self.stopped = False
+
+    def stop(self):
+        self.stopped = True
+
+    def songpos(self, value):
+        self._jump(value * CLOCKS_PER_SONGPOS)
+
+    def _jump(self, position):
+        # A new song position (start, or a jump or loop). A sounding note keeps the rest of its
+        # gate. The last hit's position is kept, so a position re-sent where a pad just hit can't
+        # hit again, and the time spacing covers a loop wrap.
+        for pad in self.pads.values():
+            if pad.off_pos is not None:
+                pad.off_pos = position + max(0, pad.off_pos - self.position)
+        self.position = position
+
+    def clock(self, now):
+        self.last_clock = now
+        if self.stopped:
+            return
+        pos = self.position
+        self.position += 1
+        rate = self.rate
+        on_line = pos % rate == 0
+        if on_line:
+            self.line_pos, self.line_time = pos, now
+        for key, pad in list(self.pads.items()):
+            pad.next_hit = pad.off_at = None  # timer mode starts afresh if the clock stops
+            if on_line and pad.pending_first:
+                self._first_hit(pad, now)
+                pad.last_hit_pos = pos
+                pad.off_pos = pos + self._gate_clocks()
+            elif (on_line and not pad.released and pos != pad.last_hit_pos
+                    and self._spaced(pad, now)):
+                self._hit(pad, now)
+                pad.last_hit_pos = pos
+                pad.off_pos = pos + self._gate_clocks()
+            elif pad.on and pad.off_pos is not None and pos >= pad.off_pos:
+                self._off(pad)
+                if pad.released:  # a quick tap's one note is done
+                    del self.pads[key]
+            elif pad.on and pad.off_pos is None:  # was on the timer: finish its gate on the clock
+                pad.off_pos = pos + self._gate_clocks()
+
+    def _gate_clocks(self):
+        return max(1, int(self.rate * GATE))
+
+    # --- timer (timer mode) -------------------------------------------------------------------
+
+    def interval(self):
+        """Seconds per repeat at the current tempo."""
+        return self.rate / float(CLOCKS_PER_BEAT) * 60.0 / self.bpm
+
+    def tick(self, now):
+        """From the timer thread: play hits and note-offs that are due, unless the clock drives them."""
+        if not self.pads:
+            return
+        self._check_clock(now)
+        if self.clocked(now):
+            return
+        interval = self.interval()
+        for key, pad in list(self.pads.items()):
+            pad.off_pos = None  # clock mode picks up afresh if the clock returns
+            if pad.pending_first:
+                # Held back for a grid line, but the clock stopped: play it now.
+                self._first_hit(pad, now)
+                pad.next_hit = now + interval
+                pad.off_at = now + interval * GATE
+                continue
+            if pad.released:
+                if pad.on and pad.off_at is not None and now >= pad.off_at:
+                    self._off(pad)
+                if not pad.on:
+                    del self.pads[key]  # a quick tap's one note is done
+                continue
+            if pad.next_hit is None:  # the clock just stopped: keep the rhythm of the last hit
+                pad.next_hit = pad.last_hit_time + interval
+                pad.off_at = pad.last_hit_time + interval * GATE
+            if now >= pad.next_hit and self._spaced(pad, now):
+                self._hit(pad, now)
+                pad.next_hit += interval
+                if pad.next_hit <= now:  # fell behind: don't catch up in a burst
+                    pad.next_hit = now + interval
+                pad.off_at = now + interval * GATE
+            elif pad.on and pad.off_at is not None and now >= pad.off_at:
+                self._off(pad)
+
+    def _check_clock(self, now):
+        """Warn once per play if FL is playing and pads repeat but no clock has arrived."""
+        if not self.playing or self._warned:
+            return
+        if self._play_seen is None:
+            self._play_seen = now
+        got_clock = self.last_clock is not None and self.last_clock >= self._play_seen
+        if not got_clock and now - self._play_seen > CLOCK_TIMEOUT:
+            self._warned = True
+            if self.on_no_clock:
+                self.on_no_clock()
+
+    # --- notes -------------------------------------------------------------------------------
+
+    def _first_hit(self, pad, now):
+        """Play a held-back first note: the pad's press, on the grid line."""
+        pad.pending_first = False
+        self._hit(pad, now)
+
+    def _hit(self, pad, now):
+        self._off(pad)
+        self.emit("note_on", pad.channel, pad.note, pad.velocity)
+        pad.on = True
+        pad.last_hit_time = now
+
+    def _off(self, pad):
+        if pad.on:
+            self.emit("note_off", pad.channel, pad.note, 0)
+            pad.on = False
+
+
+class Bridge:
+    """Routes messages between the MK2 and FL. `to_fl` and `to_device` send one message each;
+    `make_message(type, **fields)` builds one (mido.Message in main).
+
+    The MK2's port, FL's port and the timer thread each call in on their own thread, so every entry
+    point holds `lock`: the repeater and the `to_fl` port are never used by two threads at once.
+
+    Pad pressure is thinned on its way to FL (see PRESSURE_INTERVAL): a repeated value is dropped,
+    and a pad sends at most one value per interval, the latest being sent by the timer when the
+    interval is up. A return to 0 always goes at once. Traffic to FL is counted, and a second with
+    more than FLOOD_WARN messages is logged, so an input overflow in FL can be traced.
+    """
+
+    def __init__(self, to_fl, to_device, make_message=None, trace=False, clock=time.perf_counter):
         self.to_fl = to_fl
         self.to_device = to_device
+        self.make_message = make_message
         self.trace = trace
+        self.clock = clock
+        self.lock = threading.Lock()
+        self.repeater = NoteRepeater(self._emit, on_no_clock=self._no_clock)
+        self._pressure = {}  # (channel, note) -> _Pressure
+        self._window_start = None  # traffic count: start of the current second
+        self._window_count = 0
+        self._window_pressure = 0
+        self._last_flood_log = None
 
     def from_device(self, msg):
-        if self.trace:
-            log.info("MK2 -> FL  %s", msg)
-        self._send(self.to_fl, msg, "FL")
+        with self.lock:
+            if msg.type in ("note_on", "note_off"):  # only the pads send notes
+                now = self.clock()
+                if msg.type == "note_on" and msg.velocity > 0:
+                    forward = self.repeater.pad_on(msg.channel, msg.note, msg.velocity, now)
+                else:
+                    self._pressure.pop((msg.channel, msg.note), None)  # drop pending pressure
+                    forward = self.repeater.pad_off(msg.channel, msg.note, now)
+                if not forward:
+                    return
+            elif msg.type == "polytouch" and not self._pressure_due(msg, self.clock()):
+                return
+            if self.trace:
+                log.info("MK2 -> FL  %s", msg)
+            self._send(self.to_fl, msg, "FL")
 
     def from_fl(self, msg):
-        if msg.type in FL_ONLY_TYPES:
-            return
+        with self.lock:
+            if msg.type == "control_change" and msg.channel == CONTROL_CHANNEL:
+                if self.trace:
+                    log.info("FL -> bridge  %s", msg)
+                self.repeater.control_change(msg.control, msg.value)
+                return
+            if msg.type in FL_ONLY_TYPES:
+                self._sync(msg)
+                return
+            if self.trace:
+                log.info("FL -> MK2  %s", msg)
+            self._send(self.to_device, msg, "MK2")
+
+    def _sync(self, msg):
+        repeater = self.repeater
+        if msg.type == "clock":
+            repeater.clock(self.clock())
+        elif msg.type == "start":
+            repeater.start()
+        elif msg.type == "continue":
+            repeater.cont()
+        elif msg.type == "stop":
+            repeater.stop()
+        elif msg.type == "songpos":
+            repeater.songpos(msg.pos)
+
+    def tick(self):
+        """From the timer thread."""
+        with self.lock:
+            now = self.clock()
+            self.repeater.tick(now)
+            self._flush_pressure(now)
+
+    @property
+    def busy(self):
+        """Whether the timer has work: pads repeating, or pad pressure waiting to go to FL."""
+        with self.lock:
+            return self.repeater.busy or any(p.pending is not None for p in self._pressure.values())
+
+    def _pressure_due(self, msg, now):
+        """Whether a pad pressure message goes to FL now. If not, the latest is kept for the timer."""
+        key = (msg.channel, msg.note)
+        rec = self._pressure.get(key)
+        if rec is None:
+            self._pressure[key] = _Pressure(msg.value, now)
+            return True
+        if msg.value == rec.value:
+            rec.pending = None  # back to what FL already has
+            return False
+        if msg.value == 0 or now - rec.sent_at >= PRESSURE_INTERVAL:
+            rec.value, rec.sent_at, rec.pending = msg.value, now, None
+            return True
+        rec.pending = msg
+        return False
+
+    def _flush_pressure(self, now):
+        for rec in self._pressure.values():
+            if rec.pending is not None and now - rec.sent_at >= PRESSURE_INTERVAL:
+                msg, rec.pending = rec.pending, None
+                rec.value, rec.sent_at = msg.value, now
+                if self.trace:
+                    log.info("MK2 -> FL  %s", msg)
+                self._send(self.to_fl, msg, "FL")
+
+    def hello(self):
+        """Tell the script the bridge (re)started, so it sends its Note Repeat state."""
+        with self.lock:
+            self._send(self.to_fl, self.make_message(
+                "control_change", channel=CONTROL_CHANNEL, control=CC_HELLO, value=127), "FL")
+
+    def stop_all(self):
+        with self.lock:
+            self.repeater.stop_all()
+
+    def _no_clock(self):
+        # Called under the lock, from tick.
+        log.warning("FL is playing but no MIDI clock arrives on %s: tick Send master sync on that "
+                    "output. Repeats aren't locked to the song until then.", FROM_FL_NAME)
+        self._send(self.to_fl, self.make_message(
+            "control_change", channel=CONTROL_CHANNEL, control=CC_NO_CLOCK, value=127), "FL")
+
+    def _emit(self, kind, channel, note, velocity):
+        msg = self.make_message(kind, channel=channel, note=note, velocity=velocity)
         if self.trace:
-            log.info("FL -> MK2  %s", msg)
-        self._send(self.to_device, msg, "MK2")
+            log.info("repeat -> FL  %s", msg)
+        self._send(self.to_fl, msg, "FL")
 
     def _send(self, send, msg, where):
-        # An exception here would be lost on the callback thread; log it and keep going.
+        # An exception here would be lost on a callback thread; log it and keep going.
+        if where == "FL":
+            self._count(msg)
         try:
             send(msg)
         except Exception:
             log.exception("could not send %s to %s", msg, where)
+
+    def _count(self, msg):
+        """Count traffic to FL per second, and log a second with more than FLOOD_WARN messages."""
+        now = self.clock()
+        if self._window_start is None or now - self._window_start >= 1.0:
+            if self._window_count > FLOOD_WARN and (
+                    self._last_flood_log is None or now - self._last_flood_log >= FLOOD_LOG_EVERY):
+                log.warning("heavy MIDI to FL: %d msg/s (pad pressure %d). FL may report a MIDI input "
+                            "overflow.", self._window_count, self._window_pressure)
+                self._last_flood_log = now
+            self._window_start, self._window_count, self._window_pressure = now, 0, 0
+        self._window_count += 1
+        if msg.type == "polytouch":
+            self._window_pressure += 1
+
+
+class _Pressure:
+    """What FL has for one pad's pressure, and a newer value waiting for PRESSURE_INTERVAL."""
+
+    __slots__ = ("value", "sent_at", "pending")
+
+    def __init__(self, value, sent_at):
+        self.value = value
+        self.sent_at = sent_at
+        self.pending = None
+
+
+def _run_timer(bridge, stopping):
+    """Timer thread: drives Note Repeat while FL's clock isn't. Sleeps 1 ms while pads repeat."""
+    while not stopping.is_set():
+        bridge.tick()
+        time.sleep(0.001 if bridge.busy else 0.02)
+
+
+def _high_resolution_timer(enable):
+    """On Windows, ask for 1 ms timer resolution so short sleeps are precise."""
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+
+        winmm = ctypes.WinDLL("winmm")
+        (winmm.timeBeginPeriod if enable else winmm.timeEndPeriod)(1)
+    except Exception:
+        log.warning("could not set the Windows timer resolution; repeats may be less even")
 
 
 def _parse_args(argv):
@@ -132,7 +598,7 @@ def main(argv=None):
         opened.append(device_out)
         to_fl = mido.open_output(to_fl_name)
         opened.append(to_fl)
-        bridge = Bridge(to_fl.send, device_out.send, trace=args.verbose)
+        bridge = Bridge(to_fl.send, device_out.send, make_message=mido.Message, trace=args.verbose)
         opened.append(mido.open_input(device_in_name, callback=bridge.from_device))
         opened.append(mido.open_input(from_fl_name, callback=bridge.from_fl))
     except Exception as error:  # e.g. FL still has the MK2's port open
@@ -142,15 +608,25 @@ def main(argv=None):
             port.close()
         return 1
 
+    _high_resolution_timer(True)
+    stopping = threading.Event()
+    timer = threading.Thread(target=_run_timer, args=(bridge, stopping), name="note-repeat", daemon=True)
+    timer.start()
+    bridge.hello()
     log.info("bridge running: %s <-> %s / %s. Ctrl+C to stop.", device_in_name, to_fl_name, from_fl_name)
+    log.info("hello sent: the FL script will send its Note Repeat state")
     try:
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
         pass
     finally:
+        stopping.set()
+        timer.join(1)
+        bridge.stop_all()  # no hanging notes
         for port in opened:
             port.close()
+        _high_resolution_timer(False)
         log.info("bridge stopped")
     return 0
 

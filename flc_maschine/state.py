@@ -38,6 +38,12 @@ class ControllerState:
         self.sounding = {}
         # Toggled by Pad Mode. While on, pads play at pads.FIXED_VELOCITY however hard they're hit.
         self.fixed_velocity = False
+        # Note Repeat mode (bridge mode only), cycled by its button: note_repeat.OFF (0), ON
+        # (straight divisions) or TRIPLETS. The MK2 bridge repeats held pads while it isn't OFF.
+        self.note_repeat = 0
+        # Note Repeat's division: an index into the current mode's note_repeat.RATES, changed by
+        # the encoder while Note Repeat is on. Independent of FL's grid snap.
+        self.note_repeat_rate = 2  # 1/16 or 1/16T (note_repeat.DEFAULT_RATE)
         # The FPC channel selected at the last render, or None. Selecting a different FPC jumps
         # the pads to Group E.
         self.fpc_channel = None

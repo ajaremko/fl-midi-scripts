@@ -25,12 +25,14 @@ import transport  # noqa: E402  (the stub)
 import ui  # noqa: E402  (the stub)
 import midi  # noqa: E402
 
-import device_FLC_MaschineMK2 as script  # noqa: E402
-from flc_maschine import bindings, controls, diagnostics, log, notes  # noqa: E402
+import device_FLC_MaschineMK2_Hardware as script  # noqa: E402
+import device_FLC_MaschineMK2_Bridge as bridge_script  # noqa: E402
+from flc_maschine import bindings, bridge_link, controls, diagnostics, feedback, log, notes  # noqa: E402
 from flc_maschine.state import NEW, SHIFT  # noqa: E402
+from flc_maschine import controller as controller_module  # noqa: E402
 from flc_maschine.controller import MaschineMk2  # noqa: E402
 from flc_maschine.rendering import colors, renderer  # noqa: E402
-from flc_maschine.handlers import pads, transport_controls, ui_commands  # noqa: E402
+from flc_maschine.handlers import note_repeat, pads, transport_controls, ui_commands  # noqa: E402
 from flc_maschine.rendering.fl_state import FlSnapshot  # noqa: E402
 
 
@@ -108,6 +110,7 @@ class ScriptTestCase(unittest.TestCase):
         mixer.track_number = 0
         mixer.track_count = 10
         mixer.selected_tracks = set()
+        mixer.tempo = 120.0
         general.ppq = 96
         general.ppb = 384
         self.log = io.StringIO()
@@ -332,8 +335,8 @@ class ScaffoldTest(ScriptTestCase):
     def test_unbound_knob_passes_through(self):
         self.assertFalse(self.send(cc(controls.BY_ID["E1"].number, 64)).handled)
 
-    def test_unmapped_message_is_left_for_fl(self):
-        self.assertFalse(self.send(cc(0)).handled)
+    def test_unmapped_message_is_swallowed(self):
+        self.assertTrue(self.send(cc(0)).handled)  # unmapped: logged, not passed to FL
 
     def test_every_control_in_every_layer_runs_without_error(self):
         for mode in (None, SHIFT, NEW):
@@ -518,6 +521,307 @@ class EncoderDragSelectTest(ScriptTestCase):
         self.turn(+1)
         self.assertEqual(transport.calls, [("globalTransport", midi.FPT_Down, 1)])
         self.assertEqual(channels.selection, set())
+
+
+BRIDGE_CC = midi.MIDI_CONTROLCHANGE + bridge_link.CHANNEL  # control changes on channel 16
+
+
+# Everything the script tells the bridge: repeat off, rate 1/16 (6 clocks), 120.0 BPM, stopped.
+FULL_STATE = [(1, 0), (2, 0), (34, 6), (3, 9), (35, 48), (4, 0)]
+
+
+def bridge_ccs():
+    """(control, value) of each channel-16 control change the script sent, in order."""
+    return [(d1, d2) for status, d1, d2 in map(unpack, device.sent) if status == BRIDGE_CC]
+
+
+class EntryScriptsTest(unittest.TestCase):
+    def test_each_entry_script_names_its_connection(self):
+        for filename, name in (("device_FLC_MaschineMK2_Hardware.py", "FL Complete Maschine MK2 (Hardware)"),
+                               ("device_FLC_MaschineMK2_Bridge.py", "FL Complete Maschine MK2 (Bridge)")):
+            with self.subTest(filename=filename):
+                with open(os.path.join(ROOT, filename)) as f:
+                    self.assertEqual(f.readline().strip(), "# name=" + name)  # FL reads line 1
+
+    def test_the_entry_scripts_set_the_mode(self):
+        self.assertFalse(script.controller.bridge)
+        self.assertTrue(bridge_script.controller.bridge)
+
+
+class HardwareModeTest(ScriptTestCase):
+    def test_note_repeat_is_a_placeholder_and_nothing_goes_to_a_bridge(self):
+        event = self.send(cc(controls.BY_ID["NOTE_REPEAT"].number))
+        self.assertTrue(event.handled)
+        self.assertIn("unimplemented: NOTE_REPEAT", self.log.getvalue())
+        self.assertFalse(self.controller.state.note_repeat)
+        self.assertFalse(self.controller.leds._sent["NOTE_REPEAT"])
+        device.reset()
+        self.refresh()
+        script.OnInit()
+        self.assertEqual(bridge_ccs(), [])
+
+
+class BridgeModeTest(ScriptTestCase):
+    """The Bridge entry script: Note Repeat state sent to the MK2 bridge on channel 16."""
+
+    def setUp(self):
+        super().setUp()
+        bridge_script.controller = MaschineMk2(bridge=True)
+        self.controller = bridge_script.controller
+        device.reset()
+        bridge_script.OnInit()
+
+    def send(self, event):
+        device.reset()
+        bridge_script.OnMidiMsg(event)
+        bridge_script.OnIdle()
+        return event
+
+    def refresh(self, flags=0):
+        bridge_script.OnRefresh(flags)
+        bridge_script.OnIdle()
+
+    def test_init_sends_the_full_state(self):
+        # Off; 1/16 is 6 clocks; 120.0 BPM is 1200 = 9 * 128 + 48; stopped.
+        self.assertEqual(bridge_ccs(), FULL_STATE)
+
+    def press_note_repeat(self):
+        # A toggle button: FL sees 127 and 0 on alternate presses, and each is a press.
+        self.presses = getattr(self, "presses", 0) + 1
+        return self.send(cc(controls.BY_ID["NOTE_REPEAT"].number, 127 if self.presses % 2 else 0))
+
+    def test_note_repeat_cycles_off_on_triplets(self):
+        state = self.controller.state
+        self.press_note_repeat()
+        self.assertEqual(state.note_repeat, note_repeat.ON)
+        self.assertTrue(self.controller.leds._sent["NOTE_REPEAT"])
+        self.assertEqual(ui.hints[-1], "Note Repeat: 1/16")
+        self.assertEqual(bridge_ccs(), [(1, 127)])  # only what changed
+        self.press_note_repeat()
+        self.assertEqual(state.note_repeat, note_repeat.TRIPLETS)
+        self.assertTrue(self.controller.leds._sent["NOTE_REPEAT"])
+        self.assertEqual(ui.hints[-1], "Note Repeat: triplets, 1/16T")
+        self.assertEqual(bridge_ccs(), [(2, 0), (34, 4)])  # still on; now 1/16T
+        self.press_note_repeat()
+        self.assertEqual(state.note_repeat, note_repeat.OFF)
+        self.assertFalse(self.controller.leds._sent["NOTE_REPEAT"])
+        self.assertEqual(ui.hints[-1], "Note Repeat: off")
+        self.assertEqual(bridge_ccs(), [(1, 0), (2, 0), (34, 6)])
+
+    def turn(self, delta):
+        del transport.calls[:]
+        return self.send(cc(controls.BY_ID["ENCODER"].number, delta & 0x7F))
+
+    def rates_turning(self, delta, times):
+        names = []
+        for _ in range(times):
+            self.turn(delta)
+            names.append(note_repeat.rate_name(self.controller.state))
+        return names
+
+    def test_encoder_steps_through_the_straight_rates_in_on(self):
+        self.press_note_repeat()
+        ui.focused = midi.widChannelRack
+        self.turn(+1)  # clockwise: faster
+        self.assertEqual(ui.hints[-1], "Note Repeat: 1/32")
+        self.assertEqual(bridge_ccs(), [(2, 0), (34, 3)])
+        self.assertEqual(transport.calls, [])  # no navigation
+        self.turn(+1)
+        self.assertEqual(bridge_ccs(), [])  # clamped at 1/32: nothing new
+        self.assertEqual(self.rates_turning(-1, 4), ["1/16", "1/8", "1/4", "1/4"])
+
+    def test_encoder_steps_through_the_triplet_rates_in_triplets(self):
+        self.press_note_repeat()
+        self.press_note_repeat()
+        self.assertEqual(self.rates_turning(+1, 2), ["1/32T", "1/32T"])
+        self.assertEqual(self.rates_turning(-1, 4), ["1/16T", "1/8T", "1/4T", "1/4T"])
+        self.assertEqual(ui.hints[-1], "Note Repeat: 1/4T")
+
+    def test_the_division_carries_across_modes(self):
+        self.press_note_repeat()
+        self.turn(-1)  # 1/8
+        self.press_note_repeat()
+        self.assertEqual(note_repeat.rate_name(self.controller.state), "1/8T")
+        self.assertEqual(bridge_ccs(), [(2, 0), (34, 8)])
+
+    def test_note_repeat_takes_the_encoder_from_overrides_and_selection(self):
+        self.send(cc(controls.BY_ID["VOLUME"].number))  # volume override
+        self.press_note_repeat()
+        ui.focused = midi.widChannelRack
+        self.send(cc(controls.BY_ID["ENCODER_PUSH"].number, 127))  # held: would drag-select
+        self.turn(+1)
+        self.send(cc(controls.BY_ID["ENCODER_PUSH"].number, 0))
+        self.assertEqual(mixer.track_volume[0], 0.8)
+        self.assertEqual(channels.selection, set())
+        self.assertEqual(transport.calls, [])  # and the release doesn't click
+        self.assertEqual(note_repeat.rate_name(self.controller.state), "1/32")
+
+    def test_encoder_is_unchanged_with_note_repeat_off(self):
+        ui.focused = midi.widChannelRack
+        self.turn(+1)
+        self.assertEqual(transport.calls, [("globalTransport", midi.FPT_Down, 1)])
+        self.assertEqual(note_repeat.rate_name(self.controller.state), "1/16")
+
+    def test_the_snap_no_longer_changes_the_rate(self):
+        ui.snap_mode = midi.Snap_Beat
+        device.reset()
+        self.refresh()
+        self.assertEqual(bridge_ccs(), [])
+
+    def test_play_state_is_sent(self):
+        transport.playing = True
+        device.reset()
+        self.refresh()
+        self.assertEqual(bridge_ccs(), [(4, 127)])
+        transport.playing = False
+        device.reset()
+        self.refresh()
+        self.assertEqual(bridge_ccs(), [(4, 0)])
+
+    def test_no_clock_warning_is_shown_once(self):
+        warning = FakeEvent(midi.MIDI_CONTROLCHANGE, bridge_link.CC_NO_CLOCK, 127, channel=bridge_link.CHANNEL)
+        for _ in range(3):
+            self.assertTrue(self.send(warning).handled)
+        self.assertEqual(ui.hints.count(bridge_link.NO_CLOCK_WARNING), 1)
+        self.assertEqual(self.log.getvalue().count("Send master sync"), 1)
+        self.assertFalse(self.controller.guard.tripped)
+
+    def test_tempo_is_sent_in_tenths_and_normalised(self):
+        mixer.tempo = 128.5
+        device.reset()
+        self.refresh()
+        self.assertEqual(bridge_ccs(), [(3, 10), (35, 5)])  # 1285 = 10 * 128 + 5
+        mixer.tempo = 140000.0  # BPM x 1000, as some FL versions report it
+        device.reset()
+        self.refresh()
+        self.assertEqual(bridge_ccs(), [(3, 10), (35, 120)])  # 1400
+
+    def test_unchanged_state_is_not_resent(self):
+        device.reset()
+        self.refresh()
+        self.assertEqual(bridge_ccs(), [])
+
+    def test_bridge_hello_resends_everything(self):
+        hello = FakeEvent(midi.MIDI_CONTROLCHANGE, bridge_link.CC_HELLO, 127, channel=bridge_link.CHANNEL)
+        self.send(hello)
+        self.assertTrue(hello.handled)
+        self.assertNotIn("unmapped", self.log.getvalue())
+        self.assertEqual(bridge_ccs(), FULL_STATE)
+        leds = [m for m in device.sent if unpack(m)[0] != BRIDGE_CC]
+        self.assertIn((midi.MIDI_CONTROLCHANGE, controls.BY_ID["SCENE"].number, 0), map(unpack, leds))
+        self.assertTrue(any(unpack(m)[1] == controls.BY_ID["PAD_1"].number for m in leds))
+
+    def test_rechecks_tempo_while_note_repeat_is_on(self):
+        self.send(cc(controls.BY_ID["NOTE_REPEAT"].number))
+        mixer.tempo = 90.0  # changed without a refresh
+        device.reset()
+        for _ in range(controller_module.BRIDGE_RECHECK_IDLES):
+            bridge_script.OnIdle()
+        self.assertEqual(bridge_ccs(), [(3, 7), (35, 4)])  # 900 = 7 * 128 + 4
+
+    def test_deinit_turns_note_repeat_off_in_the_bridge(self):
+        self.send(cc(controls.BY_ID["NOTE_REPEAT"].number))
+        device.reset()
+        bridge_script.OnDeInit()
+        self.assertEqual(bridge_ccs(), [(1, 0)])
+
+
+class FeedbackGuardTest(ScriptTestCase):
+    """The script's own output routed back into its input (see feedback.py)."""
+
+    def echo(self, messages, entry=script):
+        """Feed sent messages back in as input, as a feedback loop would, then run OnIdle."""
+        for message in messages:
+            status, data1, data2 = unpack(message)
+            entry.OnMidiMsg(FakeEvent(status & 0xF0, data1, data2, channel=status & 0x0F))
+        entry.OnIdle()
+
+    def run_loop(self, rounds, entry=script):
+        """Echo everything the script sends, round after round."""
+        for _ in range(rounds):
+            sent = list(device.sent)
+            device.reset()
+            self.echo(sent, entry)
+
+    def test_an_echoed_colour_message_trips_the_guard(self):
+        event = FakeEvent(midi.MIDI_NOTEON, controls.BY_ID["PAD_1"].number, 127, channel=1)
+        script.OnMidiMsg(event)
+        self.assertTrue(event.handled)
+        self.assertTrue(self.controller.guard.tripped)
+        self.assertEqual(self.log.getvalue().count("receiving its own output"), 1)
+        self.assertIn(feedback.WARNING, ui.hints)
+
+    def test_once_tripped_input_is_ignored_and_nothing_is_sent(self):
+        script.OnMidiMsg(FakeEvent(midi.MIDI_CONTROLCHANGE, 80, 5, channel=2))
+        del transport.calls[:]
+        event = self.send(cc(controls.BY_ID["SCENE"].number))
+        self.assertTrue(event.handled)
+        self.assertEqual(transport.calls, [])
+        self.refresh()
+        script.OnDeInit()
+        self.assertEqual(device.sent, [])
+        self.assertEqual(self.log.getvalue().count("receiving its own output"), 1)  # warned once
+
+    def test_a_pad_loop_is_stopped_at_once(self):
+        self.send(note_on(controls.BY_ID["PAD_1"].number))  # the pad's LED is resent
+        self.run_loop(3)
+        self.assertTrue(self.controller.guard.tripped)
+        self.assertEqual(device.sent, [])
+
+    def test_a_scene_loop_on_channel_1_is_stopped(self):
+        self.send(cc(controls.BY_ID["SCENE"].number))  # toggles song mode, so the Scene LED changes
+        self.run_loop(30)
+        self.assertTrue(self.controller.guard.tripped)
+        toggles = transport.calls.count(("setLoopMode",))
+        self.assertLessEqual(toggles, feedback.ECHO_LIMIT + 1)  # stopped, not runaway
+        self.assertEqual(device.sent, [])
+
+    def test_ordinary_presses_do_not_trip_it(self):
+        for _ in range(3):
+            self.send(cc(controls.BY_ID["SCENE"].number))
+            self.send(cc(controls.BY_ID["PAD_MODE"].number))
+        for _ in range(20):
+            self.send(note_on(controls.BY_ID["PAD_1"].number))
+            self.send(note_off(controls.BY_ID["PAD_1"].number))
+        self.assertFalse(self.controller.guard.tripped)
+
+    def test_bridge_mode_trips_on_its_own_channel_16_messages_but_not_the_hello(self):
+        bridge_script.controller = MaschineMk2(bridge=True)
+        bridge_script.OnInit()
+        hello = FakeEvent(midi.MIDI_CONTROLCHANGE, bridge_link.CC_HELLO, 127, channel=bridge_link.CHANNEL)
+        bridge_script.OnMidiMsg(hello)
+        self.assertFalse(bridge_script.controller.guard.tripped)
+        bridge_script.OnMidiMsg(FakeEvent(midi.MIDI_CONTROLCHANGE, bridge_link.CC_REPEAT, 0,
+                                          channel=bridge_link.CHANNEL))
+        self.assertTrue(bridge_script.controller.guard.tripped)
+
+    def test_fls_all_notes_off_burst_is_not_an_echo(self):
+        # After a MIDI input overflow (or a panic) FL sends All Notes Off on all 16 channels.
+        del transport.calls[:]
+        for channel in range(16):
+            event = FakeEvent(midi.MIDI_CONTROLCHANGE, 123, 0, channel=channel)
+            script.OnMidiMsg(event)
+            self.assertTrue(event.handled)
+        script.OnIdle()
+        self.assertFalse(self.controller.guard.tripped)
+        self.assertNotIn("unmapped", self.log.getvalue())
+        self.assertEqual(transport.calls, [])
+
+    def test_the_trip_warning_names_the_message(self):
+        script.OnMidiMsg(FakeEvent(midi.MIDI_CONTROLCHANGE, 80, 5, channel=1))
+        self.assertIn("(tripped by channel 2 CC 80 = 5)", self.log.getvalue())
+
+    def test_hardware_mode_ignores_channel_16(self):
+        script.OnMidiMsg(FakeEvent(midi.MIDI_CONTROLCHANGE, 1, 0, channel=15))
+        self.assertFalse(self.controller.guard.tripped)
+
+    def test_reloading_the_script_starts_clean(self):
+        script.OnMidiMsg(FakeEvent(midi.MIDI_NOTEON, 12, 1, channel=2))
+        script.controller = MaschineMk2()
+        device.reset()
+        script.OnInit()
+        self.assertFalse(script.controller.guard.tripped)
+        self.assertTrue(device.sent)  # LEDs sent again
 
 
 class WindowButtonsTest(ScriptTestCase):

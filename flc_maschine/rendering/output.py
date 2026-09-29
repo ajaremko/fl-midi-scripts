@@ -13,14 +13,17 @@ from . import colors
 HSB_CHANNELS = (0, 1, 2)
 
 
-def _send(control, channel, value):
+def _message(control, channel, value):
     status = midi.MIDI_CONTROLCHANGE if control.msg == controls.CC else midi.MIDI_NOTEON
-    device.midiOutMsg(status + channel + (control.number << 8) + (value << 16))
+    return status + channel + (control.number << 8) + (value << 16)
 
 
 class LedWriter:
-    def __init__(self):
+    def __init__(self, on_send=None):
         self._sent = {}
+        # Called with each mono LED message sent; the feedback guard compares input with them. HSB
+        # LEDs aren't reported: their channel 2 and 3 components give an echo away by themselves.
+        self.on_send = on_send
 
     def invalidate(self, control_id=None):
         """Forget what was sent, so the next write resends it. None forgets every LED."""
@@ -41,7 +44,7 @@ class LedWriter:
     def _write_mono(self, control, wanted):
         if self._sent.get(control.id) == wanted:
             return
-        _send(control, control.channel, 127 if wanted else 0)
+        self._send(control, control.channel, 127 if wanted else 0, report=True)
         self._sent[control.id] = wanted
 
     def _write_hsb(self, control, wanted):
@@ -50,5 +53,11 @@ class LedWriter:
         sent = self._sent.get(control.id)
         for i, channel in enumerate(HSB_CHANNELS):
             if sent is None or sent[i] != wanted[i]:
-                _send(control, channel, wanted[i])
+                self._send(control, channel, wanted[i])
         self._sent[control.id] = wanted
+
+    def _send(self, control, channel, value, report=False):
+        message = _message(control, channel, value)
+        device.midiOutMsg(message)
+        if report and self.on_send:
+            self.on_send(message)

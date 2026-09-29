@@ -86,6 +86,7 @@ def _channel_state(state, fl, frame):
 
 def _pad_mode(state, fl, frame):
     frame["PAD_MODE"] = state.fixed_velocity
+    frame["NOTE_REPEAT"] = bool(state.note_repeat)  # lit in On and Triplets; only ever on in bridge mode
 
 
 def _encoder_mode(state, fl, frame):

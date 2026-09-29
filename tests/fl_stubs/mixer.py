@@ -48,3 +48,10 @@ def selectTrack(index):
 
 def isTrackSelected(index):
     return 1 if index in selected_tracks else 0
+
+
+tempo = 120.0  # getCurrentTempo, in BPM
+
+
+def getCurrentTempo(asInt=0):
+    return tempo

@@ -19,13 +19,30 @@ Of the 3 controllers, its responsible for
 
 This allows the other two controllers to focus on doing what they do best - being a sequencer and a keyboard respectively.
 
+### Hardware or Bridge?
+
+The MK2 script comes as two entry scripts. Pick one as the MK2's **Controller type** in FL's MIDI settings:
+
+| Controller type | Connects to | Setup | Note Repeat |
+|---|---|---|---|
+| **FL Complete Maschine MK2 (Hardware)** | the MK2's own MIDI ports | none beyond FL's MIDI settings | not available: the button stays unlit and does nothing |
+| **FL Complete Maschine MK2 (Bridge)** | the `MK2 Bridge In` / `MK2 Bridge Out` loopMIDI ports | Python, loopMIDI and the MK2 bridge running (below) | available, timed by the bridge |
+
+Everything else works the same with either.
+
+- **Updating from before the split:** the old "FL Complete Maschine MK2" controller type no longer exists. Reselect one of the two types above in FL's MIDI settings, or the MK2 has no script.
+- **The Bridge type on the MK2's own ports:** everything works except Note Repeat, which lights up but never repeats, because no bridge is there to do it.
+- **The Hardware type on the bridge ports:** works, as the bridge passes everything through, but Note Repeat is unavailable.
+
 ### MK2 bridge (setup)
 
-The MK2 connects to FL through a small helper program, [mk2_bridge/bridge.py](mk2_bridge/bridge.py), that runs next to FL Studio. For now it passes MIDI through unchanged in both directions. It is where note repeat will be timed, because FL scripts get no reliable timer.
+For the **Bridge** controller type, the MK2 connects to FL through a small helper program, [mk2_bridge/bridge.py](mk2_bridge/bridge.py), that runs next to FL Studio.
+- **Passthrough:** it passes MIDI through in both directions.
+- **Note Repeat:** while it's on, the bridge replays held pads. It times the repeats with FL's MIDI clock while FL is playing, and with its own timer while FL is stopped. FL scripts get no reliable timer, which is why this lives outside FL.
 
 ```text
-MK2 --USB--> bridge --> loopMIDI "MK2 Bridge In"  --> FL (this script)
-MK2 <--USB-- bridge <-- loopMIDI "MK2 Bridge Out" <-- FL (LEDs)
+MK2 --USB--> bridge --> loopMIDI "MK2 Bridge In"  --> FL (the Bridge script)
+MK2 <--USB-- bridge <-- loopMIDI "MK2 Bridge Out" <-- FL (LEDs, Note Repeat state, MIDI clock)
 ```
 
 One-time setup, on the Windows machine running FL Studio:
@@ -38,16 +55,26 @@ One-time setup, on the Windows machine running FL Studio:
 
    | FL list | Enable | Leave disabled |
    |---|---|---|
-   | **Input** | `MK2 Bridge In`: Controller type **FL Complete Maschine MK2**, port number e.g. 10 | `MK2 Bridge Out`, and the MK2's own input |
-   | **Output** | `MK2 Bridge Out`: the **same port number** as the input | `MK2 Bridge In`, and the MK2's own output |
+   | **Input** | `MK2 Bridge In`: Controller type **FL Complete Maschine MK2 (Bridge)**, port number e.g. 10 | `MK2 Bridge Out`, and the MK2's own input |
+   | **Output** | `MK2 Bridge Out`: the **same port number** as the input, and tick **Send master sync** (and **Send song position**, if your FL version shows it) | `MK2 Bridge In`, and the MK2's own output |
 
    - **Swapped ports don't work.** If `MK2 Bridge Out` is enabled as an input and `MK2 Bridge In` as an output, FL listens where nothing arrives and sends where the bridge isn't listening. Nothing happens in either direction.
    - **The MK2's own ports must be disabled**, not just set to no script. If FL has them open, the bridge can't open them and says so when it starts.
-   - **Matching port numbers** are how FL pairs the script's input with its output. With a different number, the pads and buttons work but no LEDs change.
+   - **Matching port numbers** are how FL pairs the script's input with its output. With a different number, the pads and buttons work but no LEDs change, and Note Repeat never turns on in the bridge.
+   - **Send master sync** sends FL's MIDI clock to the bridge, which locks Note Repeat to the song while FL is playing.
+     - **Without it,** repeats still work, from the bridge's own timer at the project tempo, but they aren't locked to the song and recordings land off the grid. The bridge notices: once you play with a pad repeating and no clock arrives, FL's hint bar says "Note Repeat isn't locked to the song: tick Send master sync on MK2 Bridge Out…" (and the bridge console logs it).
+     - **Ticked on a different output** (e.g. the Fire's): no clock reaches the bridge, with the same effect.
+   - **Feedback loop: FL gets its own output back.** This happens if `MK2 Bridge Out` is enabled in the **Input** list, or `MK2 Bridge In` has a port number in the **Output** list (easily left over from a swapped setup). FL sends the script's output to every output with its port number, and the script's LED messages look like MK2 presses.
+     - **Symptoms:** Scene or Play toggling on its own in a rapid loop, Stop not working, one pad hit repeating endlessly, the volume jumping to maximum (the Volume button's message is CC 7, MIDI channel volume). loopMIDI's window shows its data counters racing.
+     - **What the script does:** it detects the echo, stops sending and ignores all input. It says so in FL's hint bar and in VIEW > Script output: "MK2: FL is receiving its own output…".
+     - **Fix:** correct the two settings, then reload the script: restart FL, or reselect the Controller type in MIDI settings.
+     - **Not this pitfall:** if the Script output line ends "(tripped by channel … CC 12x …)" (CC 120–127), that was FL's own All Notes Off. It no longer trips the guard.
+   - **FL's ASIO warning with Send master sync:** FL may warn that master sync with an ASIO driver can be inconsistent. The bridge takes its timing from FL's clock while playing, so any unevenness in that clock shows in the repeats. If repeats feel uneven while playing, lower FL's audio buffer to 256 samples or less: at 512, repeats are noticeably early or late (see [known-issues.md](known-issues.md)).
+   - **Checking triplets:** triplet repeats (1/4T … 1/32T) fall between the lines of a straight Piano Roll grid, by a steady repeating amount, as they should. Check them with the Piano Roll snap on a triplet division: "1/3 beat" for 1/8T, "1/6 beat" for 1/16T.
 
 Each session: start the bridge with `start_bridge.bat` (a console window; close it to stop the bridge). It can be started, stopped or restarted while FL is open. To start it hidden at log on, put a shortcut to `pyw -3.12 bridge.py --log bridge.log` (started in the `mk2_bridge` folder) in the Windows Startup folder; `--log` is needed because `pyw` has no console. `--verbose` logs every message, for troubleshooting.
 
-If the bridge isn't running, the MK2 does nothing in FL.
+If the bridge isn't running, the MK2 does nothing in FL. The bridge sends the script a "hello" when it starts, so it can be restarted while FL is open and picks up the Note Repeat state. Its console says "hello sent" when it's ready, and `--verbose` shows the Note Repeat state the script sends (MIDI channel 16).
 
 ### Hardware Layout Diagram
 
@@ -154,8 +181,8 @@ These are all of the controls present on the hardware with their location, label
 | Master | Left        |               | Button  | left (like the left arrow key in the focused window) |                                                     |
 | Master | Right       |               | Button  | right (like the right arrow key in the focused window) |                                                     |
 | Master | Enter       |               | Button  | enter; in the Channel Rack, open the selected channel's plugin |                                                     |
-| Master | Note Repeat | Tap           | Button  |                                         |                                                     |
-| Master | Encoder     |               | Encoder | turn: navigate the focused window (up/down, or left/right in the mixer) or an open menu; press: enter (browser, menus), open menu (mixer, playlist, piano roll), open the selected channel's item (right-click) menu (channel rack); a press acts on release, and not at all if the encoder turned while held. Push and turn: select a range of channels (channel rack) or mixer tracks (mixer), starting at the selected channel or current track | Volume / Swing / Tempo overrides take priority for turning, but push and turn in the channel rack or mixer always selects. Needs Encoder Push in Gate mode in the template (reload the updated .ncm2 in Controller Editor) |
+| Master | Note Repeat | Tap           | Button  | (Bridge controller type only) press to cycle **Off → On → Triplets**. On: held pads retrigger at a straight division (1/4, 1/8, 1/16, 1/32); Triplets: at a triplet division (1/4T, 1/8T, 1/16T, 1/32T). Locked to FL's clock while playing, the first note too: a press within a short grace window after a grid line (1/8 of the division, at most 30 ms) plays at once, any other press plays on the next grid line, and a quick tap still plays one note there. While on, turning the master encoder changes the division within the mode (clockwise faster); switching modes keeps the division (1/16 ↔ 1/16T). FL's hint bar shows the mode and division. Independent of FL's grid snap | lit in On and Triplets; needs the MK2 bridge running, and Send master sync for repeats locked to the song |
+| Master | Encoder     |               | Encoder | turn: navigate the focused window (up/down, or left/right in the mixer) or an open menu; press: enter (browser, menus), open menu (mixer, playlist, piano roll), open the selected channel's item (right-click) menu (channel rack); a press acts on release, and not at all if the encoder turned while held. Push and turn: select a range of channels (channel rack) or mixer tracks (mixer), starting at the selected channel or current track | While Note Repeat is on, turning only changes its rate. Otherwise Volume / Swing / Tempo overrides take priority for turning, but push and turn in the channel rack or mixer always selects. Needs Encoder Push in Gate mode in the template (reload the updated .ncm2 in Controller Editor) |
 | Groups | A -> H      |               | Button  | select pad group: the pads play 16 notes from group × 16 (A 0–15, B 16–31 … H 112–127; middle C is Group D pad 13). While the selected channel is FPC: Group E plays bank A and Group F bank B, in FPC's pad colours; empty pads and the other groups are dark and silent; selecting an FPC jumps to Group E | lit in the selected channel's colour, brightest when selected; starts on Group D; only E and F lit while FPC is selected |
 | Transport | Restart     | Loop          | Button  | stop, jump to the start and play        |                                                     |
 | Transport | Left        | Step Left     | Button  | move the song position to the previous snap grid line | uses FL's main snap (toolbar); set the Playlist and Piano Roll snap to "Main" so the playhead lands on the same grid |

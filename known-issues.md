@@ -120,3 +120,69 @@ Bank B's **notes** and **empty** flags come back correctly from `plugins.getPadI
 **Maximum range.** When a step goes past the channel's pitch range (FL's default is ±2 semitones), the script widens the range to 12, 24, 36 or 48 semitones, and stops the pitch at ±48 (`MAX_PITCH_RANGE`). That 48 is a guess at FL's maximum range. If FL caps the range lower, the knob will stop short of the hint's value. Lower `PITCH_RANGE_STEPS` to match.
 
 **Checking in FL Studio.** Select a channel and turn shift mode on (F8). Pad 13 should move the channel's pitch knob to +100 cents. Pad 16 should set the range in the channel's settings to 12 and the knob to +13 semitones. Keep pressing Pad 16 up to +48 and compare the knob with the hint.
+
+## MK2 bridge: a feedback loop through loopMIDI makes the MK2 run wild (guarded)
+
+**Observed:** 2026-09-29, with the Bridge controller type, after restarting.
+- One pad hit set off a continuous stream of MIDI, and the volume maxed out.
+- Stop didn't work.
+- FL flipped between song and pattern mode in a rapid loop.
+
+**Cause (diagnosed from the symptoms):** FL was receiving the script's own output as input.
+- **How it gets back in:** every loopMIDI port appears in both FL's Input and Output lists. `MK2 Bridge Out` enabled as an Input, or `MK2 Bridge In` given the script's port number in Outputs (FL sends the script's output to every output with that number), routes it back in.
+- **Why it runs away:** the script's LED messages look like MK2 presses.
+  - **Button lights:** an echoed Scene LED is a Scene press, which toggles song mode and changes the LED, which is sent again.
+  - **Pads:** every press makes the script resend that control's LED, so an echoed pad press repeats forever.
+  - **Volume:** the Volume button's message is CC 7, MIDI channel volume.
+  - **Colours:** the pad and group colour messages on channels 2 and 3 used to be passed to FL as notes and CCs.
+- **Not the cause:** restart handling. FL restarting resends all LEDs and the full bridge state, and the bridge restarting sends a hello that does the same.
+
+**Guard (implemented):** [feedback.py](flc_maschine/feedback.py).
+- **What trips it:** an input on channels 2 or 3, the script's own channel-16 messages coming back, or a burst of inputs matching button-LED messages just sent.
+- **What happens then:** the script stops sending and ignores input until it's reloaded, and says so in the hint bar and Script output.
+- **Unrecognised messages** are no longer passed to FL.
+
+**Fix the settings:** Inputs: only `MK2 Bridge In` enabled. Outputs: only `MK2 Bridge Out` has the script's port number. Then reload the script.
+
+## MK2 bridge: MIDI input overflow when recording starts, and a false feedback trip (fixed)
+
+**Observed:** 2026-09-29, pressing Play with Record on while testing Note Repeat. FL reported a MIDI input overflow, and the script stopped with "MK2: FL is receiving its own output…". Before that, Script output showed `unmapped midi id 176 chan 0 data1 123 data2 0`. The routing was correct, so this was no feedback loop.
+
+**What happened:**
+1. **The input overflowed.** FL's MIDI input overflowed while FL was busy starting to record. The likely cause is the dense pad pressure (poly aftertouch) stream from held pads, which the bridge passed through message for message.
+2. **FL cleared hanging notes.** It sent CC 123 (All Notes Off) on all 16 channels through the script's input.
+3. **The guard tripped falsely.** The copy on channel 2 tripped the feedback guard, whose "channels 2/3 are echoes" rule didn't allow for channel-mode messages. The script never sends CC 120–127.
+
+**Fixes:**
+- **Guard:** channel-mode CCs (120–127) are never echoes, and the controller swallows them quietly ([feedback.py](flc_maschine/feedback.py)). A trip now logs the message that caused it.
+- **Bridge, pressure:** it thins pad pressure, dropping repeated values and sending at most one per pad every 10 ms, always the latest.
+- **Bridge, traffic warning:** it logs any second with more than 400 messages to FL, e.g. "heavy MIDI to FL: 612 msg/s (pad pressure 580)".
+
+**If an overflow happens again:** check the bridge console for the traffic line, to see what was flooding.
+
+## MK2 bridge: a large audio buffer makes Note Repeat jitter (worked around by setting)
+
+**Observed:** 2026-09-29, recording Note Repeat while FL was playing, with FL's ASIO driver at a 512-sample buffer. Every repeat was slightly early or late, never drifting further, so quantizing to 1/6 or 1/4 step lined everything up. At 256 samples the jitter was gone.
+
+**Cause (most likely):** FL processes MIDI once per audio buffer, not continuously.
+- **Outgoing clock:** it sends its MIDI clock (Send master sync) in steps of one buffer. The bridge plays a repeat when a clock tick arrives, so the repeat inherits that step.
+- **Recording:** incoming MIDI is probably also placed in steps of one buffer, adding the same kind of error on the way back in.
+- **The size of the error** is up to about one buffer's length:
+
+  | Buffer | At 48 kHz | At 96 kHz |
+  |---|---|---|
+  | 512 | ~10.7 ms, noticeable | ~5.3 ms |
+  | 256 | ~5.3 ms, fine in testing | ~2.7 ms |
+  | 128 | ~2.7 ms | ~1.3 ms |
+
+The bridge adds only about 1 ms of its own (loopMIDI and its 1 ms timer). This is also why FL warns that master sync with ASIO may be inconsistent.
+
+**Workaround:** set FL's audio buffer to **256 samples or less** (Options > Audio settings).
+- **FL Studio ASIO's minimum** here is 256.
+- **A dedicated audio interface** with its own ASIO driver (e.g. NI Komplete Audio) typically goes lower, to 64 or 32 samples; the exact minimum depends on the model and driver.
+- **A higher sample rate** also shortens each buffer: 256 samples at 96 kHz is ~2.7 ms.
+- **The trade-off** is CPU: smaller buffers (or higher rates) can make heavy projects crackle.
+
+**Symptom to recognise:** repeats that are a little early or late, never getting worse, and that line up after quantizing to a small division. If instead they drift further off over time, or sit a constant amount off a triplet grid, it's something else.
+
+**Possible script fix (not done):** the bridge could smooth FL's clock, estimating tempo and beat position from many ticks and scheduling repeats on its own 1 ms timer instead of firing on each tick. That would remove the outgoing part of the jitter at any buffer size, but not any added by FL when it records incoming MIDI.

@@ -22,9 +22,10 @@ Only the Maschine MK2 script exists so far. The Akai Fire and FLkey 2 scripts wi
 
 ```text
 FL Complete/
-├── device_FLC_MaschineMK2.py      entry script: header + FL callbacks, nothing else
-├── mk2_bridge/                    helper program run beside FL (not by FL): MK2 <-> loopMIDI passthrough
-│   ├── bridge.py                  Bridge (routing), find_port, main (opens the ports)
+├── device_FLC_MaschineMK2_Hardware.py  entry script for the MK2's own ports: MaschineMk2(bridge=False)
+├── device_FLC_MaschineMK2_Bridge.py    entry script for the MK2 bridge's ports: MaschineMk2(bridge=True), adds Note Repeat
+├── mk2_bridge/                    helper program run beside FL (not by FL): MK2 <-> loopMIDI, times Note Repeat
+│   ├── bridge.py                  Bridge (routing, lock), NoteRepeater (repeat logic), find_port, main (ports, timer thread)
 │   ├── requirements.txt           mido, python-rtmidi
 │   └── start_bridge.bat           starts it in a console window
 ├── flc_maschine/                  the MK2 script's package
@@ -36,7 +37,9 @@ FL Complete/
 │   ├── events.py                  raw FL event -> ControlEvent
 │   ├── dispatcher.py              ControlEvent -> handler
 │   ├── controller.py              MaschineMk2: wires the pieces together
+│   ├── bridge_link.py             bridge mode: sends Note Repeat state to the MK2 bridge (channel 16)
 │   ├── log.py                     prefixed printing to the Script output window
+│   ├── feedback.py                FeedbackGuard: stops a MIDI feedback loop (own output coming back in)
 │   ├── diagnostics.py             crash log (flc_debug.log): callbacks, stats, exceptions
 │   ├── handlers/
 │   │   ├── common.py              unimplemented, passthrough, on_press
@@ -50,6 +53,7 @@ FL Complete/
 │   │   ├── selection.py           push-and-turn drag selection (Channel Rack channels, mixer tracks)
 │   │   ├── pads.py                play: translate pad notes for the selected group
 │   │   ├── modes.py               toggle (Shift / New), once (one-shot mode functions)
+│   │   ├── note_repeat.py         toggle (Note Repeat, bridge mode only)
 │   │   └── pattern_controls.py    new_pattern, duplicate_pattern
 │   └── rendering/
 │       ├── fl_state.py            FlSnapshot: the FL Studio state the renderer needs
@@ -73,8 +77,35 @@ FL Complete/
 ## 2. Runtime model
 
 - **One instance per port.** FL Studio runs a separate copy of the script for each MIDI port it is assigned to. Each copy has its own module namespace, so module-level state is never shared with the other controllers' scripts. The controllers only share FL Studio's own state: focus, selection, transport.
-- **Bridge in between.** The MK2 doesn't talk to FL directly. [mk2_bridge/bridge.py](mk2_bridge/bridge.py), an ordinary Python 3 program on the Windows host, owns the MK2's ports and passes MIDI to FL through two loopMIDI ports ("MK2 Bridge In" for FL's input, "MK2 Bridge Out" for its output). For now it passes everything through unchanged, except FL's MIDI clock and other real-time messages, which it doesn't send to the MK2. It exists so timing-sensitive features (note repeat) can run on a real timer instead of FL's irregular `OnIdle`. The script itself is unchanged by it. Setup is in the README.
-- **Thin entry script.** [device_FLC_MaschineMK2.py](device_FLC_MaschineMK2.py) creates one `MaschineMk2` and forwards `OnInit`, `OnDeInit`, `OnMidiMsg`, `OnRefresh` and `OnIdle` to it. The `# name=` header must stay on line 1.
+- **Two thin entry scripts.** [device_FLC_MaschineMK2_Hardware.py](device_FLC_MaschineMK2_Hardware.py) ("FL Complete Maschine MK2 (Hardware)") is for the MK2's own ports. [device_FLC_MaschineMK2_Bridge.py](device_FLC_MaschineMK2_Bridge.py) ("… (Bridge)") is for the MK2 bridge's loopMIDI ports. Each creates one `MaschineMk2(bridge=False/True)` and forwards `OnInit`, `OnDeInit`, `OnMidiMsg`, `OnRefresh` and `OnIdle` to it. The `# name=` header must stay on line 1; it is FL's Controller type name.
+- **Bridge mode.** With `bridge=True`, the controller adds what needs the bridge:
+  - the `bindings.BRIDGE_BASE` overlay (Note Repeat)
+  - a [bridge_link.py](flc_maschine/bridge_link.py) `BridgeLink` that sends the bridge its state
+  - an answer to the bridge's hello
+
+  With `bridge=False` none of this exists: Note Repeat stays an `unimplemented()` placeholder, and nothing is sent on channel 16.
+- **The MK2 bridge.** [mk2_bridge/bridge.py](mk2_bridge/bridge.py) is an ordinary Python 3 program on the Windows host, not run by FL.
+  - **Ports:** it owns the MK2's ports and passes MIDI to FL through two loopMIDI ports: "MK2 Bridge In" for FL's input, "MK2 Bridge Out" for its output.
+  - **Timing:** it times Note Repeat with FL's MIDI clock (master sync) while FL is playing, and with its own 1 ms timer thread while stopped. FL's `OnIdle` was far too irregular for this.
+  - **Pad pressure thinning:** the MK2 sends pad pressure (poly aftertouch) densely, and a burst while FL is busy overflowed FL's MIDI input. The bridge drops repeated values and sends at most one per pad every `PRESSURE_INTERVAL` (10 ms), the latest following on the timer thread. A 0 goes at once, and a release drops pending pressure. Traffic to FL is counted, and a second over `FLOOD_WARN` messages is logged (at most once a minute).
+  - **First note on the grid:** while the clock runs, a press within the grace window after the latest grid line (`GRACE_FRACTION` of an interval, at most `GRACE_MAX`) plays at once and counts as that line. Any other press is held back (`pending_first`) and played by the next grid-line clock. A pad released before then (a quick tap) still plays that one note with its gate, and its release isn't passed on. If the clock stops first, the timer plays the held note at once.
+  - **No double hits:** a pad never sounds twice within `MIN_SPACING` (half an interval) or twice at the same clock position. FL's loop wrap otherwise hits twice at the downbeat: the clock at the end of the bar and song position 0 are both grid lines, milliseconds apart.
+  - **Rate changes:** on the clock, the next grid line of the new rate plays, spacing permitting. On the timer, the new interval counts from the pad's last hit.
+  - **Replaying:** a repeat replays the pad's raw note-on and note-off, so the script handles each one as an ordinary pad hit (groups, FPC, fixed velocity).
+  - **Threads:** `NoteRepeater` is pure logic. `Bridge` calls it under one lock from three threads: the MK2's input, FL's output and the timer.
+  - **Setup** is in the README.
+- **Script-to-bridge messages** are control changes on MIDI channel 16, which the MK2 template never uses. The bridge keeps them out of the MK2's LED stream. The numbers are defined in both [bridge_link.py](flc_maschine/bridge_link.py) and [bridge.py](mk2_bridge/bridge.py) and must match:
+
+  | CC | Direction | Meaning |
+  |---|---|---|
+  | 1 | script → bridge | Note Repeat: 0 off, 127 on |
+  | 2, 34 | script → bridge | Rate in MIDI clocks (24 per beat), MSB then LSB; applied on the LSB. Note Repeat's own rate (`note_repeat.RATES`), independent of FL's snap. Triplets are just other clock counts, so the bridge knows nothing of the modes. |
+  | 3, 35 | script → bridge | Tempo × 10, MSB then LSB; used while FL is stopped |
+  | 4 | script → bridge | FL playing: 0 stopped, 127 playing |
+  | 126 | bridge → script | FL is playing but no MIDI clock arrives (Send master sync off): the script shows a hint once |
+  | 127 | bridge → script | Hello: the bridge (re)started; the script resends everything |
+
+  `BridgeLink.write` runs from the render (`OnIdle`) and sends only values that changed. While Note Repeat is on, the controller renders at least every `BRIDGE_RECHECK_IDLES` idles, so tempo changes that FL doesn't report with a refresh still reach the bridge. The feedback guard expects CC 126 and 127 from the bridge; any other channel-16 input is the script's own output coming back.
 - **Embedded Python.** FL Studio's Python may not have the full standard library. Use only modules the shipped vendor scripts already use (`enum`, `typing`, `time`, `math`, `traceback`). Avoid `dataclasses`; the code uses plain classes with `__slots__` instead.
 
 ## 3. Data flow
@@ -145,11 +176,14 @@ The other callbacks:
 | [fpc.py](flc_maschine/fpc.py) | Detect a selected FPC and read its pads | `selected_fpc_channel`, `read_pad`, `read_banks`, `FpcPad` | `channels`, `midi`, `plugins` (reads only) |
 | [events.py](flc_maschine/events.py) | Decode raw MIDI into control events | `ControlEvent`, `decode`, `PRESS`, `RELEASE`, `TURN`, `VALUE`, `PRESSURE` | `midi` constants |
 | [dispatcher.py](flc_maschine/dispatcher.py) | Route an event to its handler; release and aftertouch follow the press; fault isolation | `dispatch` | No |
-| [controller.py](flc_maschine/controller.py) | Owns the state and the LED writer; implements the FL callbacks | `MaschineMk2` | `device` |
+| [controller.py](flc_maschine/controller.py) | Owns the state and the LED writer; implements the FL callbacks. `MaschineMk2(bridge)` selects hardware or bridge mode; in bridge mode it also owns a `BridgeLink`, answers the bridge's hello, and turns Note Repeat off in the bridge on deinit | `MaschineMk2`, `BRIDGE_RECHECK_IDLES` | `device` |
+| [bridge_link.py](flc_maschine/bridge_link.py) | Bridge mode: sends the MK2 bridge the Note Repeat state (on/off, its rate in MIDI clocks, tempo, FL playing) as channel-16 CCs, only when they change; recognises the bridge's hello and no-clock warning | `BridgeLink`, `rate_clocks`, `is_hello`, the `CC_*` numbers | `device`, `midi` |
+| [feedback.py](flc_maschine/feedback.py) | Notices the script's own output coming back as input (a MIDI settings mistake, easy with loopMIDI ports) and trips. Sure signs: any note, aftertouch or CC on channels 2 or 3, which only the HSB colour messages use (except channel-mode CCs 120–127, which the script never sends but FL does, on every channel, e.g. All Notes Off after an input overflow; the controller swallows those quietly); any channel-16 message other than the hello in bridge mode. Otherwise, repeated look-alikes: `ECHO_LIMIT` inputs within `ECHO_PERIOD`, each matching a mono LED message sent in the last `ECHO_WINDOW`. Once tripped, the controller swallows all input and sends nothing until the script is reloaded | `FeedbackGuard`, `WARNING`, `ECHO_*`, `clock` | `midi` |
 | [log.py](flc_maschine/log.py) | `[FLC MK2]` prefixed output; optional raw MIDI trace | `info`, `trace_midi`, `TRACE_MIDI` | No |
 | [diagnostics.py](flc_maschine/diagnostics.py) | **Off by default (`ENABLED = False`).** Crash log that survives FL crashing: writes `flc_debug.log` (next to the entry script) a line at a time. The entry script runs every callback through `run` (counted, timed, `> name [t<thread id>]` and `< name` lines except for `OnIdle`, exceptions logged and re-raised); `tick` writes a stats line every 5 s (call counts, renders, state sizes). Memory counters (`MEMORY_STATS`) and full-GC logging (`WATCH_GC`) are optional and off by default: they were ruled out as useful, and are suspected of contributing to crashes. Never use `gc.get_objects()` here: it fails in FL's Python. Switch off with `ENABLED = False` | `run`, `note`, `count`, `tick`, `start`, `ENABLED`, `LOG_FILE` | `general` (version only) |
 | [handlers/common.py](flc_maschine/handlers/common.py) | Reusable handlers and wrappers. `unimplemented(...)` handlers carry `placeholder = True`, so modes don't highlight them | `unimplemented`, `passthrough`, `on_press` | No |
 | [handlers/edit.py](flc_maschine/handlers/edit.py) | Editing actions for the shift-mode pads: Pad 1 Undo (`general.undoUp`), Pad 2 Redo (`general.undoDown`), Pad 3 Compare (`general.undo`, FL's Ctrl+Z, which toggles the last edit in FL's default undo mode) and Pad 5 Quantize (`channels.quickQuantize` on the selected channel; FL offers no quantize strength, so Pad 6 Quantize 50% can't exist) | `undo`, `redo`, `compare`, `quantize` | `general`, `channels` |
+| [handlers/note_repeat.py](flc_maschine/handlers/note_repeat.py) | Note Repeat (bridge mode only, through `bindings.BRIDGE_BASE`). `toggle` cycles `state.note_repeat` through `OFF` → `ON` → `TRIPLETS`. `RATES` holds four divisions per mode (straight 1/4…1/32, triplet 1/4T…1/32T, in MIDI clocks), so straight and triplet grids never mix; one division index is shared, so switching modes keeps the division. `step_rate` moves within the mode, called by `encoder.turn` first thing while Note Repeat is on. Both show the mode and rate in the hint bar. The bridge does the repeating | `toggle`, `step_rate`, `OFF`, `ON`, `TRIPLETS`, `RATES`, `rate_name`, `rate_clocks` | `ui` |
 | [handlers/modes.py](flc_maschine/handlers/modes.py) | Handlers that change the controller's own modes: `toggle(mode)` for F7/F8 (entering a mode also clears `encoder_mode`), and `once(handler)`, which turns the mode off after a New-mode function runs | `toggle`, `once` | No |
 | [handlers/channel_controls.py](flc_maschine/handlers/channel_controls.py) | Solo and Mute: toggle solo (`channels.soloChannel`) or mute (`channels.muteChannel`) on the selected Channel Rack channel, whatever window is focused; nothing when no channel is selected. The renderer's `_channel_state` rule lights each button from the snapshot | `solo`, `mute` | `channels` |
 | [handlers/pattern_controls.py](flc_maschine/handlers/pattern_controls.py) | Pattern functions. New + Pattern jumps to the next empty pattern. Duplicate clones the current pattern with `patterns.clonePattern()`, first selecting it in the Picker if it isn't selected (`clonePattern` clones the selection; its index argument needs API 43) | `new_pattern`, `duplicate_pattern` | `patterns`, `midi` |
@@ -160,7 +194,7 @@ The other callbacks:
 | [handlers/ui_commands.py](flc_maschine/handlers/ui_commands.py) | Buttons that send one FL command per press. `send_for_focus` picks the command by focused window: F5 sends `FPT_ItemMenu` in the Browser and Piano Roll, otherwise `FPT_Menu`. F6 Esc sends `FPT_Escape`; Master Left and Right send `FPT_Left` and `FPT_Right`. Enter (`enter`) sends `FPT_Enter`, except in the Channel Rack with no popup menu open, where it opens the selected channel's plugin window (`channels.showCSForm(channel, 1)`, which opens a plugin's window or a sampler's channel settings; `showEditor` did nothing in FL 2025). `send` takes an optional value for jog commands: shift Pads 7/8 (Nudge Left/Right) send `FPT_TempoJog` −1/+1, a 0.1 BPM tempo step. `open_menu_then` opens a menu and queues follow-up commands, which `run_menu_commands` sends from `OnIdle` once FL reports the menu open (dropping them after `MENU_WAIT_TICKS`). New + Browse uses it to reach FL's Add menu: `FPT_Menu`, then `FPT_Right` ×3 ([known-issues.md](known-issues.md)) | `send`, `send_for_focus`, `enter`, `open_menu_then`, `run_menu_commands` | `transport`, `ui`, `channels` |
 | [handlers/windows.py](flc_maschine/handlers/windows.py) | BROWSE and F1–F4: show and focus a window, or hide it if already focused | `toggle` | `ui` |
 | [handlers/pads.py](flc_maschine/handlers/pads.py) | Pads: rewrite the note to the selected group's note and pass it to FL. While fixed velocity (Pad Mode) is on, note-ons are also rewritten to velocity `FIXED_VELOCITY` (127). `transpose(semitones)` is shift Pads 13–16 (Semitone/Octave −/+): it moves the selected channel's pitch (FPC channels included), widening the channel's pitch range to the next of `PITCH_RANGE_STEPS` when needed, up to ±`MAX_PITCH_RANGE`, and shows the result in FL's hint bar | `play`, `toggle_fixed_velocity`, `FIXED_VELOCITY`, `transpose`, `PITCH_RANGE_STEPS`, `MAX_PITCH_RANGE` | No |
-| [rendering/fl_state.py](flc_maschine/rendering/fl_state.py) | Read FL Studio's state once per render: focused window, transport (playing, recording, song mode), selected channel's colour and solo/mute state, selected FPC and its pads | `FlSnapshot`, `WINDOWS` | `midi`, `ui`, `transport`, `channels`, and `plugins` through `fpc.py` (reads only) |
+| [rendering/fl_state.py](flc_maschine/rendering/fl_state.py) | Read FL Studio's state once per render: focused window, transport (playing, recording, song mode), selected channel's colour and solo/mute state, selected FPC and its pads, and for the bridge the tempo (normalised: some FL versions report BPM × 1000) | `FlSnapshot`, `WINDOWS` | `midi`, `ui`, `transport`, `channels`, and `plugins` through `fpc.py` (reads only) |
 | [rendering/renderer.py](flc_maschine/rendering/renderer.py) | Decide every LED's value | `render`, `RULES`, `WINDOW_BUTTONS`, `MODE_BUTTONS`, `MODE_COLORS`, `LIT_BRIGHTNESS`, `DIM_BRIGHTNESS` | `midi` constants; no calls. Reads `bindings.MODE_CONTROLS` for `_mode_highlight`, which must stay the last rule |
 | [rendering/colors.py](flc_maschine/rendering/colors.py) | HSB colour tuples; converts FL's `0xRRGGBB` colours | `rgb_to_hsb`, `with_brightness`, `OFF`, `WHITE`, `MAX` | No |
 | [rendering/output.py](flc_maschine/rendering/output.py) | Send LED changes to the controller | `LedWriter` | `device`, `midi` |
@@ -203,6 +237,8 @@ Handler modules that perform FL actions, such as `handlers/windows.py`, import w
 | `pad_group` | The pad group (0–7 for A–H) chosen with the Group buttons. It picks the pads' notes, and its Group button is lit brightest. Starts on 3 (Group D), which holds middle C. |
 | `sounding` | Pad id → the note sent when it was pressed, so its aftertouch and note-off use that note even if the group changes while it is held |
 | `fixed_velocity` | Toggled by Pad Mode, which is lit while it is on. Pads then play at full velocity (`pads.FIXED_VELOCITY`); note-offs and aftertouch are unchanged. |
+| `note_repeat` | Note Repeat's mode in bridge mode: `note_repeat.OFF` (0, falsy), `ON` or `TRIPLETS`, cycled by its button, which is lit in On and Triplets. Sent to the bridge (as on/off plus the rate) by `BridgeLink`. Always `OFF` in hardware mode. While it isn't `OFF`, the encoder only changes `note_repeat_rate`. |
+| `note_repeat_rate` | Division index (0–3) into the current mode's `note_repeat.RATES`, default 2 (1/16 or 1/16T). Independent of FL's snap. |
 | `fpc_channel` | The FPC channel selected at the last render, or `None`. Selecting a different FPC jumps the pads to Group E. |
 | `menu_commands`, `menu_wait` | FL commands waiting for a popup menu to open, and the `OnIdle` ticks left before giving up. Set by `ui_commands.open_menu_then`. |
 
@@ -221,7 +257,8 @@ A frame is a dict from control id to the LED's desired value:
 | Rule | Why |
 |---|---|
 | MIDI numbers appear only in `controls.py`. | A template change touches one file, and the tests can check it. |
-| Only `rendering/output.py` sends MIDI to the controller. | No two pieces of code can fight over an LED. |
+| Only `rendering/output.py` sends MIDI to the controller (and, in bridge mode, `bridge_link.py` to the bridge on channel 16). | No two pieces of code can fight over an LED. |
+| Every input first passes the `FeedbackGuard`. Messages that no MK2 control sends are marked handled, not passed to FL. | If FL's MIDI settings route the script's output back in, the LED messages look like presses (and CC 7 is channel volume). Without the guard the loop runs away: Scene or Play toggling, pads retriggering, volume maxed. |
 | Handlers change state; they never touch LEDs. | LEDs are always a function of the current state, whatever changed it: a button, the mouse or another controller. |
 | The renderer calls no FL functions. It reads FL state from the `FlSnapshot` it is given. | Rendering is testable without FL Studio, and FL is read once per render. |
 | Every README control has a binding, even if it is `unimplemented(...)`. | Pressing anything gives a clear log line, and `bindings.py` doubles as a to-do list. |
@@ -383,7 +420,11 @@ From the `FL Complete` folder:
 python3 -m unittest discover -s tests -v
 ```
 
-**`test_bridge.py`** tests [mk2_bridge/bridge.py](mk2_bridge/bridge.py) without MIDI ports or `mido`: MK2 messages reach FL unchanged, FL messages reach the MK2 except clock and other real-time messages, a failed send is logged rather than raised, port-name matching (excluding the bridge's own ports, and errors listing the ports found), and a clear message when `mido` isn't installed.
+**`test_bridge.py`** tests [mk2_bridge/bridge.py](mk2_bridge/bridge.py) without MIDI ports or `mido`, with a fake clock:
+- `Bridge`: MK2 messages reach FL unchanged; FL messages reach the MK2 except clock, transport and channel-16 messages, which drive the repeater; hello; a held pad replayed; a failed send is logged rather than raised.
+- `NoteRepeater`: off means no tracking; timer-mode repeats and half-cell gates; a release passed only while the note is on; rate and tempo applied on the LSB; clock-mode hits on grid lines, skipping one just after the press; song-position jumps; one hit at a loop wrap's downbeat; no second hit at a re-sent position; rate changes on the clock (next grid line, spaced) and on the timer (from the last hit); the no-clock warning once per play, and none while clocks arrive (also through `Bridge`, as CC 126); the first note: played at once within the grace window and counted as that line, held back to the next line otherwise (also through `Bridge`), quick taps playing one note, held notes played by the timer if the clock stops, and the grace window's scaling and cap; falling back to the timer on stop or a silent clock; turning off releasing notes; independent pads.
+- Pad pressure thinning (`PressureThinningTest`): repeated values dropped; at most one per interval, with the latest sent by the timer; 0 at once; a release drops pending pressure; pads thinned separately and other messages never; the heavy-traffic warning above `FLOOD_WARN`, and not below.
+- Port-name matching (excluding the bridge's own ports, errors listing the ports found), and a clear message when `mido` isn't installed.
 
 **`test_template.py`** parses `FL Complete.ncm2` and checks five things:
 
@@ -408,6 +449,18 @@ python3 -m unittest discover -s tests -v
 - New mode (`NewModeTest`): F7 toggling and replacing Shift, New + Browse (Menu, then Right ×3 sent from `OnIdle` once the menu is open, or dropped if it never opens) and New + Pattern (new pattern) turning the mode off, other controls acting normally, and New-mode lights.
 - Duplicate (`DuplicateTest`): cloning the current pattern, selecting it first when the Picker selection is elsewhere.
 - Push-and-turn selection (`EncoderDragSelectTest`): Channel Rack and Mixer ranges growing and shrinking across the anchor, their limits (the mixer's "Current" track left out), hints, a click acting only on release and not after a drag, turning while held elsewhere or in a popup menu navigating as usual, the drag taking priority over an override, and plain turns still navigating. The `mixer` stub keeps the current track and selected tracks. `EncoderTest.click()` pushes and releases, since the push acts on release.
+- Entry scripts (`EntryScriptsTest`): each file's `# name=` line and bridge flag. Hardware mode (`HardwareModeTest`): Note Repeat is a placeholder, and nothing is sent on channel 16. Bridge mode (`BridgeModeTest`, driving the Bridge entry script): the full state on init; Note Repeat cycling Off → On → Triplets (LED, hints, CCs); the encoder changing the division within each mode (clockwise faster, clamped, hint, CCs); the division carrying across modes and taking priority over overrides, selection and navigation, with the encoder unchanged while Note Repeat is off; the snap no longer affecting the rate; play state sent; the no-clock hint shown once; tempo in tenths, normalised; nothing resent when unchanged; the hello resending everything; the periodic re-check while Note Repeat is on; repeat-off on deinit.
+- Feedback guard (`FeedbackGuardTest`):
+  - an echoed colour message trips it at once and warns once
+  - once tripped, input is ignored and nothing is sent
+  - a pad loop stops at once, and a Scene loop on channel 1 stops after `ECHO_LIMIT` echoes
+  - ordinary repeated presses don't trip it
+  - in bridge mode, its own channel-16 messages trip it but the hello doesn't; hardware mode ignores channel 16
+  - reloading starts clean
+  - FL's All Notes Off on all 16 channels doesn't trip it, and isn't logged or dispatched
+  - the trip warning names the message that tripped it
+
+  The bridge's hello also resends every LED (`BridgeModeTest`).
 - Solo and Mute (`SoloMuteTest`): toggling the selected channel's solo and mute, their LEDs following the channel's state, the selection and changes made in FL, and nothing without a selected channel.
 - Window buttons (`WindowButtonsTest`): focusing and hiding, one lit button per focused window, and focus changes made outside the script.
 - Transport (`TransportTest`): Play/Rec and their LEDs, Scene switching pattern/song mode and its LED, Restart, Metro and Count-In on shift, snap step sizes, Step Left/Right grid movement, and ERASE still unimplemented.
@@ -429,7 +482,7 @@ python3 -m unittest discover -s tests -v
 - `transport.calls` records the transport calls the script makes, in order.
 
 **In FL Studio.**
-1. Assign "FL Complete Maschine MK2 (user)" to the MK2's port in MIDI Settings.
+1. Assign "FL Complete Maschine MK2 (Hardware)" to the MK2's own port, or "(Bridge)" to `MK2 Bridge In` with the bridge running, in MIDI Settings.
 2. Open VIEW > Script output. The script logs every unimplemented press, unbound control and unmapped message there.
 3. To see every raw message, set `TRACE_MIDI = True` in [log.py](flc_maschine/log.py) and reload the script.
 
