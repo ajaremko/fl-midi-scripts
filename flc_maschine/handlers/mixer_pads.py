@@ -14,8 +14,9 @@ focus's first track on the left:
 The encoder scrolls the focus one track at a time while the Mixer is focused (encoder.turn calls
 scroll), through every track. The Group buttons jump by blocks of 4 used tracks
 (mixer_tracks.used_tracks): Group A to the 1st used track, B to the 5th ... H to the 29th, since
-8 groups of 4 can't cover all 125 inserts. A red box on the Mixer (ui.miDisplayRect) shows the focus
-when it changes (follow). renderer._mixer_pads lights the pads.
+8 groups of 4 can't cover all 125 inserts. When the focus changes, a red box on the Mixer
+(ui.miDisplayRect) outlines it and the Mixer scrolls to it (follow). renderer._mixer_pads lights
+the pads.
 """
 
 import midi
@@ -164,7 +165,7 @@ def scroll(state, delta):
 
 def follow(state, fl):
     """Called after each render's snapshot is read. Outside Mixer mode, forgets the red box. In
-    Mixer mode, keeps the focus within the tracks there are, and draws
+    Mixer mode, keeps the focus within the tracks there are, and scrolls the Mixer to and draws
     the red box around the focused tracks when the mode starts or the focus moves. Returns True
     when it moved the focus, so the controller reads the snapshot again."""
     if state.pad_mode != MIXER:
@@ -177,5 +178,10 @@ def follow(state, fl):
         return moved
     state.mixer_box = clamped
     if fl.mixer_count and ui.getVisible(midi.widMixer):
-        ui.miDisplayRect(clamped, min(clamped + TRACKS_SHOWN, fl.mixer_count) - 1, FOCUS_BOX_MS)
+        last = min(clamped + TRACKS_SHOWN, fl.mixer_count) - 1
+        ui.miDisplayRect(clamped, last, FOCUS_BOX_MS)
+        # Scroll the Mixer to the focus without touching the selection (setTrackNumber would):
+        # to its last track, then back to its first, so all of it is on screen, as the FLkey does.
+        ui.scrollWindow(midi.widMixer, last)
+        ui.scrollWindow(midi.widMixer, clamped)
     return moved

@@ -58,3 +58,9 @@ mi_rects = []  # (start, end, duration) passed to miDisplayRect
 
 def miDisplayRect(start, end, duration, flags=0):
     mi_rects.append((start, end, duration))
+
+scrolls = []  # (window, value) passed to scrollWindow
+
+
+def scrollWindow(index, value, directionFlag=0):
+    scrolls.append((index, value))

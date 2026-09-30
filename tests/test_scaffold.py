@@ -145,6 +145,7 @@ class ScriptTestCase(unittest.TestCase):
         mixer.refused = set()
         mixer.routing_changes = 0
         ui.mi_rects = []
+        ui.scrolls = []
         general.ppq = 96
         general.ppb = 384
         self.log = io.StringIO()
@@ -2896,17 +2897,23 @@ class MixerModeTest(ScriptTestCase):
         self.assertEqual(mixer.selected_tracks, {0, 1, 2})
         self.assertEqual(self.controller.state.mixer_first, 0)
 
-    def test_red_box_on_entering_jumping_and_scrolling(self):
+    def test_red_box_and_scrolling_on_entering_jumping_and_scrolling(self):
         self.use_tracks()
         self.enter()
         self.assertEqual(ui.mi_rects, [(0, 3, 2000)])
+        self.assertEqual(ui.scrolls, [(midi.widMixer, 3), (midi.widMixer, 0)])  # last, then first
         self.press("GROUP_B")
         self.assertEqual(ui.mi_rects[-1], (5, 8, 2000))
+        self.assertEqual(ui.scrolls[-2:], [(midi.widMixer, 8), (midi.widMixer, 5)])
         self.turn(-1)
         self.assertEqual(ui.mi_rects[-1], (4, 7, 2000))
+        self.assertEqual(ui.scrolls[-2:], [(midi.widMixer, 7), (midi.widMixer, 4)])
+        self.assertEqual(mixer.selected_tracks, set())  # scrolling doesn't select
+        self.refresh()  # nothing moved: no box, no scroll
+        self.assertEqual((len(ui.mi_rects), len(ui.scrolls)), (3, 6))
         ui.focused = midi.widBrowser  # the Mixer closed
         self.press("GROUP_A")
-        self.assertEqual(len(ui.mi_rects), 3)
+        self.assertEqual((len(ui.mi_rects), len(ui.scrolls)), (3, 6))
 
     def test_columns_past_the_last_track_are_dark_and_do_nothing(self):
         mixer.track_count = 4  # Master, inserts 1-2 and "Current"

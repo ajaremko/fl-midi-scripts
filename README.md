@@ -331,7 +331,7 @@ The pads are 4 mixer tracks at a time (the focus), one column of 4 pads per trac
   - **Refused routes:** if FL refuses a route (one that would loop, say), the others still apply and the hint counts the refusals.
 - **Focus with the encoder:** while the Mixer is focused (turning to Mixer mode brings it forward), each click moves the focus one track, through every track, empty ones included.
 - **Focus with the Group buttons:** 8 groups of 4 can't cover every track, so they jump by blocks of 4 *used* tracks: Group A to the 1st used track, B to the 5th, … H to the 29th. Used tracks are Master, tracks with a channel routed to them, and tracks with a name of their own. A group is bright while its block includes one of the focused tracks, dim if it has a block, and dark if there aren't enough used tracks.
-- **The red box:** for 2 seconds FL outlines the 4 focused tracks on the Mixer, when you enter Mixer mode, jump or scroll.
+- **The red box:** for 2 seconds FL outlines the 4 focused tracks on the Mixer, when you enter Mixer mode, jump or scroll, and the Mixer scrolls so all 4 are on screen (as the Channel Rack does in Channels mode). The selection doesn't change.
 - **Pitfall:** a bus with effects but no channel routed to it and no name of its own doesn't count as used, so the Group buttons skip it. Name your buses.
 - **Pitfall:** a Group jump shows 4 tracks in a row from its block's first used track, so the block's other used tracks can be further right, and some columns can be empty tracks.
 - **Pitfall:** routing toggles: pressing the same routing pad again removes the sends. To send the selected tracks only to Y, remove their sends to Master the same way (press Master's routing pad).
