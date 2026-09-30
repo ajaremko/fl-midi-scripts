@@ -10,18 +10,25 @@ SHIFT = "shift"
 NEW = "new"
 COLOR = "color"
 
+# Pad modes (handlers/pad_modes.py), chosen with the Pad Mode encoder override. Each is also the
+# name of its binding layer.
+DEFAULT_PADS = "default"
+KEYBOARD = "keyboard"
+SEQUENCER = "sequencer"
+PAD_MODES = (DEFAULT_PADS, KEYBOARD, SEQUENCER)  # in encoder order
+
 
 class ControllerState:
     def __init__(self):
-        # Global mode: SHIFT (toggled by F8), NEW (toggled by F7), COLOR (toggled by F12) or None.
+        # Global mode: SHIFT (toggled by F3/F11), NEW (toggled by F4), COLOR (toggled by F12) or None.
         # Only one is on at a time;
         # its binding layer takes priority over the base layer.
         self.mode = None
         # Control id -> the handler that received its press, so the release goes to the same
         # handler even if the active layers changed while the control was held.
         self.held = {}
-        # The master encoder's override mode ("VOLUME", "SWING", "TEMPO", "NAVIGATE", "PATTERN"
-        # or "GRID"), toggled by those buttons, or None. Entering Shift or New mode clears
+        # The master encoder's override mode ("VOLUME", "SWING", "TEMPO", "NAVIGATE", "PATTERN",
+        # "GRID" or "PAD_MODE"), toggled by those buttons, or None. Entering Shift or New mode clears
         # it. See handlers/encoder.py.
         self.encoder_mode = None
         # Encoder push: held down, and turned while held (a turn cancels the click on release).
@@ -38,8 +45,11 @@ class ControllerState:
         # Pad id -> the note sent when it was pressed, so its aftertouch and note-off use the
         # same note even if the group changes while it is held.
         self.sounding = {}
-        # Toggled by Pad Mode. While on, pads play at pads.FIXED_VELOCITY however hard they're hit.
+        # Toggled by F15. While on, pads play at pads.FIXED_VELOCITY however hard they're hit.
         self.fixed_velocity = False
+        # The pad mode (DEFAULT_PADS, KEYBOARD or SEQUENCER), chosen with the encoder while the Pad
+        # Mode override is on. Its layer sits between the global mode's and base.
+        self.pad_mode = DEFAULT_PADS
         # Note Repeat mode (bridge mode only), cycled by its button: note_repeat.OFF (0), ON
         # (straight divisions) or TRIPLETS. The MK2 bridge repeats held pads while it isn't OFF.
         self.note_repeat = 0
@@ -64,7 +74,8 @@ class ControllerState:
         self.preset_hint = None
 
     def active_layers(self):
-        """Binding layers to search, highest priority first."""
+        """Binding layers to search, highest priority first: the global mode's (so Shift pads work
+        in every pad mode), the pad mode's, then base."""
         if self.mode:
-            return [self.mode, BASE]
-        return [BASE]
+            return [self.mode, self.pad_mode, BASE]
+        return [self.pad_mode, BASE]

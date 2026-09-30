@@ -197,7 +197,7 @@ These are all of the controls present on the hardware with their location, label
 | Top    | F12         |               | Button  | toggle Color mode: the pads pick a colour for the selected channel(s) (see Shift, New and Color Modes) | lit while on; on button page 2 |
 | Top    | F13         |               | Button  | previous preset of the selected channel's plugin; the hint shows its name (see Presets and Mixer Tracks) | on button page 2 |
 | Top    | F14         |               | Button  | next preset of the selected channel's plugin; the hint shows its name | on button page 2 |
-| Top    | F15         |               | Button  | toggle fixed velocity (the same as Pad Mode) | illuminated while fixed velocity is on, with Pad Mode; on button page 2 |
+| Top    | F15         |               | Button  | toggle fixed velocity: pads play at full velocity | illuminated while fixed velocity is on; on button page 2 |
 | Top    | F16         |               | Button  | auto mixer track: route each selected channel to the next empty mixer track, named and coloured after the channel, like FL's Ctrl+L (see Presets and Mixer Tracks) | on button page 2 |
 | Top    | Sampling    |               | Button  |                                         |                                                     |
 | Top    | All         | Save          | Button  | save the project (shift mode); save a new version of it (new mode, FL's Save new version) | lit in shift and new mode |
@@ -225,7 +225,7 @@ These are all of the controls present on the hardware with their location, label
 | Master | Right       |               | Button  | right (like the right arrow key in the focused window) |                                                     |
 | Master | Enter       |               | Button  | enter; in the Channel Rack, open the selected channel's plugin |                                                     |
 | Master | Note Repeat | Tap           | Button  | (Bridge controller type only) press to cycle **Off → On → Triplets**. On: held pads retrigger at a straight division (1/4, 1/8, 1/16, 1/32); Triplets: at a triplet division (1/4T, 1/8T, 1/16T, 1/32T). Locked to FL's clock while playing, the first note too: a press within a short grace window after a grid line (1/8 of the division, at most 30 ms) plays at once, any other press plays on the next grid line, and a quick tap still plays one note there. While on, turning the master encoder changes the division within the mode (clockwise faster); switching modes keeps the division (1/16 ↔ 1/16T). FL's hint bar shows the mode and division. Independent of FL's grid snap. Pads in Shift, New or Color mode are functions, and aren't held back or repeated. Shift: tap tempo (both controller types) | lit in On and Triplets; needs the MK2 bridge running, and Send master sync for repeats locked to the song |
-| Master | Encoder     |               | Encoder | turn: navigate the focused window (up/down, or left/right in the mixer) or an open menu; press: enter (browser, menus), open menu (mixer, playlist, piano roll), open the selected channel's item (right-click) menu (channel rack); a press acts on release, and not at all if the encoder turned while held. Push and turn: select a range of channels (channel rack) or mixer tracks (mixer), starting at the selected channel or current track | While Note Repeat is on, turning only changes its rate. Otherwise Volume / Swing / Tempo overrides take priority for turning, but push and turn in the channel rack or mixer always selects. Needs Encoder Push in Gate mode in the template (reload the updated .ncm2 in Controller Editor) |
+| Master | Encoder     |               | Encoder | turn: navigate the focused window (up/down, or left/right in the mixer) or an open menu; press: enter (browser, menus), open menu (mixer, playlist, piano roll), open the selected channel's item (right-click) menu (channel rack); a press acts on release, and not at all if the encoder turned while held. Push and turn: select a range of channels (channel rack) or mixer tracks (mixer), starting at the selected channel or current track | While Note Repeat is on, turning only changes its rate. Otherwise the overrides (Volume, Swing, Tempo, Grid, Pattern, Navigate, Pad Mode) take priority for turning, but push and turn in the channel rack or mixer always selects. Needs Encoder Push in Gate mode in the template (reload the updated .ncm2 in Controller Editor) |
 | Groups | A -> H      |               | Button  | select pad group: the pads play 16 notes from group × 16 (A 0–15, B 16–31 … H 112–127; middle C is Group D pad 13). While the selected channel is FPC: Group E plays bank A and Group F bank B, in FPC's pad colours; empty pads and the other groups are dark and silent; selecting an FPC jumps to Group E | lit in the selected channel's colour, brightest when selected; starts on Group D; only E and F lit while FPC is selected |
 | Transport | Restart     | Loop          | Button  | stop, jump to the start and play; shift: toggle FL's loop recording | lit in shift mode |
 | Transport | Left        | Step Left     | Button  | move the song position to the previous snap grid line | uses FL's main snap (toolbar); set the Playlist and Piano Roll snap to "Main" so the playhead lands on the same grid |
@@ -236,7 +236,7 @@ These are all of the controls present on the hardware with their location, label
 | Transport | Erase       |               | Button  |                                         |                                                     |
 | Pads   | Scene       |               | Button  | switch between pattern and song mode | illuminated in song mode |
 | Pads   | Pattern     |               | Button  | toggle encoder override: the encoder jogs through patterns (new mode: start a new pattern) | illuminated while the override is on |
-| Pads   | Pad Mode    | Keyboard      | Button  | toggle fixed velocity: pads play at full velocity (F15 does the same) | illuminated while fixed velocity is on |
+| Pads   | Pad Mode    | Keyboard      | Button  | toggle encoder override: the encoder picks the pad mode (Default, Keyboard, Sequencer; see Pad Modes) | illuminated while the override is on |
 | Pads   | Navigate    | Mix           | Button  | toggle encoder override: the encoder jogs between open windows | illuminated while the override is on |
 | Pads   | Duplicate   |               | Button  | duplicate (clone) the current pattern   |                                                     |
 | Pads   | Select      | Events        | Button  | shift: open the selected channel's Piano Roll (nothing if no channel is selected) | lit in shift mode |
@@ -264,6 +264,23 @@ These are all of the controls present on the hardware with their location, label
 - new mode w buttons for adding new patterns/channels, etc
 - pads light up on midi out 
 - encoder controls active screen + overrides
+
+### Pad Modes
+
+Pad Mode turns on an encoder override: while it's lit, turning the encoder picks what the pads do, and the hint bar names the mode ("Pad mode: Keyboard"). Turning stops at either end. The pad mode stays when the override is turned off (press Pad Mode again, or enter Shift, New or Color mode).
+
+| Pad mode | The pads | Status |
+|---|---|---|
+| Default | play the selected group's notes in the channel's colour; the Group buttons pick the note range; FPC banks and pad colours on an FPC channel | the startup mode |
+| Keyboard | play the selected group's notes chromatically on every channel, FPC included; lit as piano keys: C white, the other white keys in the channel's colour, black keys in a dim channel colour | written |
+| Sequencer | control the Channel Rack step sequencer | not written yet |
+
+- **Other modes still work:** Shift, New and Color mode take over the pads as usual in every pad mode (e.g. Shift + Pad 1 is undo in Keyboard mode).
+- **Pitfall:** until it's written, Sequencer's pads are silent and dark; the hint says "(not written yet)". Turn back to Default or Keyboard to play.
+- **Pitfall:** on an FPC channel, Keyboard mode plays FPC's chromatic notes (Group D pad 1 is note 48), not its pad layout, and doesn't jump to Group E. Use Default for FPC's pads; turning back to Default on an FPC jumps to Group E.
+- **Pitfall:** on a very dark channel colour the black keys can be hard to see. Their brightness is `BLACK_KEY_BRIGHTNESS` in [renderer.py](flc_maschine/rendering/renderer.py).
+- **Pitfall:** while Note Repeat is on, the encoder only changes its rate. Turn Note Repeat off to change the pad mode. With the bridge, pads are repeated in Default and Keyboard.
+- **Pitfall:** Pad Mode no longer toggles fixed velocity. That's F15 now, on button page 2.
 
 ### Shift, New and Color Modes
 

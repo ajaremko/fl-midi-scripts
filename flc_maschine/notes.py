@@ -17,6 +17,19 @@ def pad_note(pad_group, pad_index):
     return pad_group * NOTES_PER_GROUP + pad_index
 
 
+# Pitch classes (note % 12) of a piano's black keys: C#, D#, F#, G#, A#. Keyboard mode lights them
+# dimmer than the white keys.
+BLACK_KEYS = frozenset((1, 3, 6, 8, 10))
+
+
+def is_black_key(note):
+    return note % 12 in BLACK_KEYS
+
+
+def is_c(note):
+    return note % 12 == 0
+
+
 # While the selected channel is FPC, Group E plays FPC's bank A and Group F its bank B; the other
 # groups are silent. FPC numbers its pads from the bottom left like the MK2, and bank B's pads
 # follow bank A's (16-31).

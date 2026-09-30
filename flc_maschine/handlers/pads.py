@@ -1,17 +1,19 @@
 """
 Pads: play notes on the selected channel, translated to the selected pad group's notes.
 
-While the selected channel is FPC, Groups E and F play FPC's two banks instead (see notes.py)
-and the other groups are silent.
+Default pad mode (play): while the selected channel is FPC, Groups E and F play FPC's two banks
+instead (see notes.py) and the other groups are silent. Keyboard pad mode (play_keyboard) always
+plays the chromatic layout, FPC included.
 """
 
 import channels
 import ui
 
 from .. import events, fpc, log, notes
+from ..state import DEFAULT_PADS
 from .common import on_press
 
-# Velocity pads play at while fixed velocity (Pad Mode) is on.
+# Velocity pads play at while fixed velocity (F15) is on.
 FIXED_VELOCITY = 127
 
 # Shift pads 13-16 change the selected channel's pitch. When a step goes past the channel's pitch
@@ -40,13 +42,18 @@ def _note_for_press(state, fl, pad_index):
     return None if pad.empty else pad.note
 
 
-def play(controller, ev):
-    """Rewrite the pad's note and hand the message to FL Studio, which plays it."""
+def _chromatic_note(state, fl, pad_index):
+    return notes.pad_note(state.pad_group, pad_index)
+
+
+def _play(controller, ev, note_for_press):
+    """Rewrite the pad's note (note_for_press(state, fl, pad_index) on a press) and hand the message
+    to FL Studio, which plays it."""
     state = controller.state
     pad_id = ev.control.id
 
     if ev.is_press:
-        note = _note_for_press(state, controller.fl, notes.PAD_INDEX[pad_id])
+        note = note_for_press(state, controller.fl, notes.PAD_INDEX[pad_id])
         if note is not None:
             state.sounding[pad_id] = note
     elif ev.is_release:
@@ -65,9 +72,24 @@ def play(controller, ev):
     ev.pass_to_fl()
 
 
+def play(controller, ev):
+    """Default pad mode: the selected group's notes, or FPC's banks on an FPC channel."""
+    _play(controller, ev, _note_for_press)
+
+
+def play_keyboard(controller, ev):
+    """Keyboard pad mode: the selected group's notes on every channel, FPC included."""
+    _play(controller, ev, _chromatic_note)
+
+
+# Handlers whose pads play notes: the MK2 bridge repeats these (bindings.pads_play_notes).
+play.plays_notes = True
+play_keyboard.plays_notes = True
+
+
 @on_press
 def toggle_fixed_velocity(controller, ev):
-    """Pad Mode: turn fixed (full) pad velocity on or off."""
+    """F15: turn fixed (full) pad velocity on or off."""
     controller.state.fixed_velocity = not controller.state.fixed_velocity
 
 
@@ -97,7 +119,10 @@ def transpose(semitones):
 
 
 def follow_fpc_selection(state, fl):
-    """Jump to the bank A group (Group E) when an FPC channel becomes selected."""
+    """Jump to the bank A group (Group E) when an FPC channel becomes selected, in Default pad mode
+    only. Other pad modes don't record the FPC either, so turning back to Default jumps then."""
+    if state.pad_mode != DEFAULT_PADS:
+        return
     if fl.fpc_channel is not None and fl.fpc_channel != state.fpc_channel:
         state.pad_group = FPC_START_GROUP
         if log.DEBUG_FPC_COLORS:

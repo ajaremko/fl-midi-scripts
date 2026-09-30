@@ -28,7 +28,7 @@ import midi  # noqa: E402
 import device_FLC_MaschineMK2_Hardware as script  # noqa: E402
 import device_FLC_MaschineMK2_Bridge as bridge_script  # noqa: E402
 from flc_maschine import bindings, bridge_link, controls, diagnostics, feedback, log, macros, notes  # noqa: E402
-from flc_maschine.state import COLOR, NEW, SHIFT  # noqa: E402
+from flc_maschine.state import COLOR, DEFAULT_PADS, KEYBOARD, NEW, SEQUENCER, SHIFT  # noqa: E402
 from flc_maschine import controller as controller_module  # noqa: E402
 from flc_maschine.controller import MaschineMk2  # noqa: E402
 from flc_maschine.rendering import colors, renderer  # noqa: E402
@@ -255,29 +255,20 @@ class ScaffoldTest(ScriptTestCase):
         self.assertEqual(event.data1, 48)
         self.assertEqual(self.send(note_on(controls.BY_ID["PAD_13"].number)).data1, 60)  # middle C
 
-    def test_pad_mode_toggles_fixed_velocity_and_its_led(self):
-        self.send(cc(controls.BY_ID["PAD_MODE"].number))
-        self.assertTrue(self.controller.state.fixed_velocity)
-        self.assertTrue(self.controller.leds._sent["PAD_MODE"])
-        self.send(cc(controls.BY_ID["PAD_MODE"].number))
-        self.assertFalse(self.controller.state.fixed_velocity)
-        self.assertFalse(self.controller.leds._sent["PAD_MODE"])
-
-    def test_f15_toggles_fixed_velocity_like_pad_mode(self):
+    def test_f15_toggles_fixed_velocity_and_its_led(self):
         self.send(cc(controls.BY_ID["F15"].number))
         self.assertTrue(self.controller.state.fixed_velocity)
         self.assertTrue(self.controller.leds._sent["F15"])
-        self.assertTrue(self.controller.leds._sent["PAD_MODE"])
-        self.send(cc(controls.BY_ID["PAD_MODE"].number))  # either button turns it off
+        self.assertFalse(self.controller.leds._sent["PAD_MODE"])  # Pad Mode is the pad mode override now
+        self.send(cc(controls.BY_ID["F15"].number))
         self.assertFalse(self.controller.state.fixed_velocity)
         self.assertFalse(self.controller.leds._sent["F15"])
-        self.assertFalse(self.controller.leds._sent["PAD_MODE"])
 
     def test_fixed_velocity_plays_pads_at_full_velocity(self):
         pad_1 = controls.BY_ID["PAD_1"].number
         self.assertEqual(self.send(note_on(pad_1, 40)).data2, 40)  # off: real velocity
         self.send(note_off(pad_1))
-        self.send(cc(controls.BY_ID["PAD_MODE"].number))
+        self.send(cc(controls.BY_ID["F15"].number))
         event = self.send(note_on(pad_1, 40))
         self.assertFalse(event.handled)
         self.assertEqual((event.data1, event.data2), (48, 127))  # still translated
@@ -286,7 +277,7 @@ class ScaffoldTest(ScriptTestCase):
 
     def test_fixed_velocity_leaves_aftertouch_alone(self):
         pad_1 = controls.BY_ID["PAD_1"].number
-        self.send(cc(controls.BY_ID["PAD_MODE"].number))
+        self.send(cc(controls.BY_ID["F15"].number))
         self.send(note_on(pad_1, 40))
         event = self.send(FakeEvent(midi.MIDI_KEYAFTERTOUCH, pad_1, 55))
         self.assertEqual(event.data2, 55)
@@ -700,6 +691,15 @@ class BridgeModeTest(ScriptTestCase):
         device.reset()
         self.refresh()
         self.assertEqual(bridge_ccs(), [])
+
+    def test_pad_modes_without_notes_tell_the_bridge(self):
+        self.send(cc(controls.BY_ID["PAD_MODE"].number))
+        for delta, value in ((1, 127), (1, 0), (-1, 127), (-1, 127)):  # Keyboard, Sequencer, Keyboard, Default
+            self.send(cc(controls.BY_ID["ENCODER"].number, delta & 0x7F))
+            self.assertEqual(self.controller.state.pad_mode == SEQUENCER, value == 0)
+            if bridge_ccs():
+                self.assertEqual(bridge_ccs(), [(5, value)])
+        self.assertEqual(self.controller.state.pad_mode, DEFAULT_PADS)
 
     def test_modes_tell_the_bridge_the_pads_are_not_notes(self):
         for button in ("F3", "F4", "F12"):
@@ -1661,6 +1661,96 @@ class PresetTest(ScriptTestCase):
                 self.assertNotIn("unimplemented: " + button, self.log.getvalue())
 
 
+class PadModeTest(ScriptTestCase):
+    """Pad Mode: an encoder override that picks the pad mode (Default, Keyboard, Sequencer)."""
+
+    def press(self, control_id, value=127):
+        return self.send(cc(controls.BY_ID[control_id].number, value))
+
+    def turn(self, delta):
+        del transport.calls[:]
+        return self.send(cc(controls.BY_ID["ENCODER"].number, delta & 0x7F))
+
+    def led(self, control_id):
+        return self.controller.leds._sent[control_id]
+
+    def pick(self, pad_mode):
+        self.press("PAD_MODE")
+        for _ in range(PAD_MODES_ORDER.index(pad_mode)):
+            self.turn(1)
+        self.press("PAD_MODE", 0)  # override off; the pad mode stays
+
+    def test_toggles_the_override_and_its_led(self):
+        self.press("PAD_MODE")
+        self.assertEqual(self.controller.state.encoder_mode, "PAD_MODE")
+        self.assertTrue(self.led("PAD_MODE"))
+        self.assertFalse(self.controller.state.fixed_velocity)
+        self.assertEqual(ui.hints, ["Pad mode: Default"])
+        self.press("PAD_MODE", 0)
+        self.assertIsNone(self.controller.state.encoder_mode)
+        self.assertFalse(self.led("PAD_MODE"))
+
+    def test_turning_steps_through_the_modes_and_stops_at_the_ends(self):
+        self.press("PAD_MODE")
+        self.turn(-1)  # already at Default
+        self.assertEqual(self.controller.state.pad_mode, DEFAULT_PADS)
+        modes = []
+        for _ in range(3):
+            self.turn(1)
+            modes.append(self.controller.state.pad_mode)
+        self.assertEqual(modes, [KEYBOARD, SEQUENCER, SEQUENCER])
+        self.assertEqual(ui.hints[-3:], ["Pad mode: Keyboard", "Pad mode: Sequencer (not written yet)",
+                                         "Pad mode: Sequencer (not written yet)"])
+        self.turn(-5)  # one mode per message, however fast
+        self.assertEqual(self.controller.state.pad_mode, KEYBOARD)
+        self.assertEqual(transport.calls, [])  # no navigation while the override is on
+
+    def test_the_pad_mode_stays_after_the_override_and_the_encoder_navigates_again(self):
+        ui.focused = midi.widChannelRack
+        self.pick(SEQUENCER)
+        self.assertEqual(self.controller.state.pad_mode, SEQUENCER)
+        self.turn(1)
+        self.assertEqual(transport.calls, [("globalTransport", midi.FPT_Down, 1)])
+
+    def check_silent_dark_pads_and_working_groups(self, pad_mode):
+        self.pick(pad_mode)
+        event = self.send(note_on(controls.BY_ID["PAD_1"].number))
+        self.assertTrue(event.handled)  # not played
+        self.assertIn("unimplemented: PAD_1", self.log.getvalue())
+        self.send(note_off(controls.BY_ID["PAD_1"].number))
+        self.assertTrue(all(self.led("PAD_%d" % (i + 1)) == colors.OFF for i in range(16)))
+        self.press("GROUP_B")
+        self.assertEqual(self.controller.state.pad_group, 1)
+        self.assertNotEqual(self.led("GROUP_B"), colors.OFF)
+
+    def test_sequencer_pads_are_silent_and_dark_until_written(self):
+        self.check_silent_dark_pads_and_working_groups(SEQUENCER)
+
+    def test_shift_pads_work_in_every_pad_mode(self):
+        self.pick(KEYBOARD)
+        self.press("F3")
+        self.send(note_on(controls.BY_ID["PAD_1"].number))  # undo
+        self.assertIn("undoUp", general.calls)
+
+    def test_default_plays_notes_again(self):
+        self.pick(SEQUENCER)
+        self.press("PAD_MODE")
+        self.turn(-2)
+        self.turn(-2)
+        event = self.send(note_on(controls.BY_ID["PAD_1"].number))
+        self.assertFalse(event.handled)
+        self.assertEqual(event.data1, 48)
+        self.assertNotEqual(self.led("PAD_2"), colors.OFF)
+
+    def test_entering_shift_turns_the_override_off(self):
+        self.press("PAD_MODE")
+        self.press("F3")
+        self.assertIsNone(self.controller.state.encoder_mode)
+
+
+PAD_MODES_ORDER = (DEFAULT_PADS, KEYBOARD, SEQUENCER)
+
+
 class DuplicateTest(ScriptTestCase):
     def press(self):
         return self.send(cc(controls.BY_ID["DUPLICATE"].number))
@@ -2133,7 +2223,7 @@ class FpcModeTest(ScriptTestCase):
 
     def test_fixed_velocity_applies_in_fpc_mode(self):
         self.select_fpc()
-        self.send(cc(controls.BY_ID["PAD_MODE"].number))
+        self.send(cc(controls.BY_ID["F15"].number))
         event = self.send(note_on(controls.BY_ID["PAD_1"].number, 30))
         self.assertEqual((event.data1, event.data2), (36, 127))
 
@@ -2142,6 +2232,76 @@ class FpcModeTest(ScriptTestCase):
         self.select_channel(0)
         self.assertEqual(self.send(note_on(controls.BY_ID["PAD_1"].number)).data1, 64)  # Group E, chromatic
         self.assertEqual(self.pad_leds()["PAD_1"], RED)
+
+
+
+class KeyboardModeTest(ScriptTestCase):
+    """Keyboard pad mode: chromatic notes on every channel, pads lit as piano keys."""
+
+    select_fpc = FpcModeTest.select_fpc
+    select_channel = FpcModeTest.select_channel
+    pad_leds = FpcModeTest.pad_leds
+
+    def setUp(self):
+        super().setUp()
+        self.send(cc(controls.BY_ID["PAD_MODE"].number))
+        self.send(cc(controls.BY_ID["ENCODER"].number, 1))  # Keyboard
+        self.send(cc(controls.BY_ID["PAD_MODE"].number, 0))  # override off
+        self.assertEqual(self.controller.state.pad_mode, KEYBOARD)
+
+    def test_hint_has_no_placeholder_note(self):
+        self.assertIn("Pad mode: Keyboard", ui.hints)
+
+    def test_pads_play_the_groups_chromatic_notes(self):
+        pad_13 = controls.BY_ID["PAD_13"].number
+        event = self.send(note_on(pad_13, 40))
+        self.assertFalse(event.handled)
+        self.assertEqual((event.data1, event.data2), (60, 40))  # Group D: middle C
+        self.send(cc(controls.BY_ID["GROUP_B"].number))
+        self.assertEqual(self.send(FakeEvent(midi.MIDI_KEYAFTERTOUCH, pad_13, 55)).data1, 60)  # still held
+        self.assertEqual(self.send(note_off(pad_13)).data1, 60)  # the sounding note
+        self.assertEqual(self.send(note_on(pad_13)).data1, 28)  # Group B
+
+    def test_fixed_velocity_applies(self):
+        self.send(cc(controls.BY_ID["F15"].number))
+        self.assertEqual(self.send(note_on(controls.BY_ID["PAD_1"].number, 30)).data2, 127)
+
+    def test_pads_are_lit_as_piano_keys(self):
+        leds = self.pad_leds()
+        dim_red = (0, 127, renderer.BLACK_KEY_BRIGHTNESS)
+        self.assertEqual(leds["PAD_1"], colors.WHITE)  # 48, C
+        self.assertEqual(leds["PAD_2"], dim_red)  # C#
+        self.assertEqual(leds["PAD_3"], RED)  # D
+        self.assertEqual(leds["PAD_13"], colors.WHITE)  # 60, middle C
+        self.assertEqual(leds["PAD_14"], dim_red)  # C#
+        self.assertEqual(leds["PAD_15"], RED)  # D
+        for index, pad in enumerate(controls.PADS):
+            note = 48 + index
+            expected = colors.WHITE if note % 12 == 0 else dim_red if note % 12 in (1, 3, 6, 8, 10) else RED
+            self.assertEqual(leds[pad.id], expected, pad.id)
+
+    def test_fpc_is_played_and_lit_chromatically(self):
+        self.select_fpc()
+        self.assertEqual(self.controller.state.pad_group, 3)  # no jump to Group E
+        self.assertEqual(self.send(note_on(controls.BY_ID["PAD_1"].number)).data1, 48)  # not FPC's 36
+        self.send(note_off(controls.BY_ID["PAD_1"].number))
+        self.assertEqual(self.pad_leds()["PAD_2"], (42, 127, renderer.BLACK_KEY_BRIGHTNESS))  # green channel, C#
+        for letter in "ABCDEFGH":
+            self.assertNotEqual(self.controller.leds._sent["GROUP_" + letter], colors.OFF)
+
+    def test_back_to_default_on_an_fpc_jumps_to_its_banks(self):
+        self.select_fpc()
+        self.send(cc(controls.BY_ID["PAD_MODE"].number))
+        self.send(cc(controls.BY_ID["ENCODER"].number, 0x7F))  # Default
+        self.assertEqual(self.controller.state.pad_mode, DEFAULT_PADS)
+        self.assertEqual(self.controller.state.pad_group, 4)
+        self.assertEqual(self.send(note_on(controls.BY_ID["PAD_1"].number)).data1, 36)
+
+    def test_shift_pads_still_override(self):
+        self.send(cc(controls.BY_ID["F3"].number))
+        self.assertTrue(self.send(note_on(controls.BY_ID["PAD_1"].number)).handled)
+        self.assertIn("undoUp", general.calls)
+        self.assertEqual(self.pad_leds()["PAD_1"], colors.ORANGE)
 
 
 if __name__ == "__main__":

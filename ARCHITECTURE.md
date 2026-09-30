@@ -58,6 +58,7 @@ FL Complete/
 │   │   ├── windows.py             toggle (BROWSE, F5–F8)
 │   │   ├── selection.py           push-and-turn drag selection (Channel Rack channels, mixer tracks)
 │   │   ├── pads.py                play: translate pad notes for the selected group
+│   │   ├── pad_modes.py           the Pad Mode override: step and show the pad mode (Default, Keyboard, Sequencer)
 │   │   ├── modes.py               toggle (Shift / New), once (one-shot mode functions)
 │   │   ├── note_repeat.py         toggle (Note Repeat, bridge mode only)
 │   │   └── pattern_controls.py    new_pattern, duplicate_pattern
@@ -183,14 +184,14 @@ The other callbacks:
 | File | Responsibility | Key names | Uses FL modules |
 |---|---|---|---|
 | [controls.py](flc_maschine/controls.py) | Every control, its README label and the MIDI message the template makes it send. The only place MIDI numbers appear. | `Control`, `ALL_CONTROLS`, `BY_ID`, `BY_KEY`, `LED_CONTROLS`, `PADS` | No |
-| [bindings.py](flc_maschine/bindings.py) | Which handler runs for each control in each layer | `LAYERS`, `lookup` | `midi` constants |
-| [state.py](flc_maschine/state.py) | Mutable controller state | `ControllerState`, `active_layers`, `BASE`, `SHIFT`, `NEW` | No |
-| [notes.py](flc_maschine/notes.py) | Which note each pad plays: 16 notes per group, Group A from 0; which FPC bank and pad each group and pad maps to | `pad_note`, `PAD_INDEX`, `NOTES_PER_GROUP`, `FPC_BANK_FOR_GROUP`, `fpc_pad` | No |
+| [bindings.py](flc_maschine/bindings.py) | Which handler runs for each control in each layer: base, the global modes (Shift, New, Color) and the pad modes (Default binds nothing; Keyboard and Sequencer bind the pads to placeholders for now). `pads_play_notes(state)` tells the bridge whether the pads are notes: no global mode on and every pad resolving to `pads.play` | `LAYERS`, `MODE_CONTROLS`, `lookup`, `pads_play_notes` | `midi` constants |
+| [state.py](flc_maschine/state.py) | Mutable controller state | `ControllerState`, `active_layers`, `BASE`, `SHIFT`, `NEW`, `COLOR`, `DEFAULT_PADS`, `KEYBOARD`, `SEQUENCER`, `PAD_MODES` | No |
+| [notes.py](flc_maschine/notes.py) | Which note each pad plays: 16 notes per group, Group A from 0; which notes are black keys and Cs (Keyboard pad mode's lights); which FPC bank and pad each group and pad maps to | `pad_note`, `is_black_key`, `is_c`, `BLACK_KEYS`, `PAD_INDEX`, `NOTES_PER_GROUP`, `FPC_BANK_FOR_GROUP`, `fpc_pad` | No |
 | [fpc.py](flc_maschine/fpc.py) | Detect a selected FPC and read its pads | `selected_fpc_channel`, `read_pad`, `read_banks`, `FpcPad` | `channels`, `midi`, `plugins` (reads only) |
 | [events.py](flc_maschine/events.py) | Decode raw MIDI into control events | `ControlEvent`, `decode`, `PRESS`, `RELEASE`, `TURN`, `VALUE`, `PRESSURE` | `midi` constants |
 | [dispatcher.py](flc_maschine/dispatcher.py) | Route an event to its handler; release and aftertouch follow the press; fault isolation | `dispatch` | No |
 | [controller.py](flc_maschine/controller.py) | Owns the state and the LED writer; implements the FL callbacks. `MaschineMk2(bridge)` selects hardware or bridge mode; in bridge mode it also owns a `BridgeLink`, answers the bridge's hello, and turns Note Repeat off in the bridge on deinit | `MaschineMk2`, `BRIDGE_RECHECK_IDLES` | `device` |
-| [bridge_link.py](flc_maschine/bridge_link.py) | Bridge mode: sends the MK2 bridge the Note Repeat state (on/off, its rate in MIDI clocks, tempo, FL playing) as channel-16 CCs, only when they change; recognises the bridge's hello and no-clock warning | `BridgeLink`, `rate_clocks`, `is_hello`, the `CC_*` numbers | `device`, `midi` |
+| [bridge_link.py](flc_maschine/bridge_link.py) | Bridge mode: sends the MK2 bridge the Note Repeat state (on/off, its rate in MIDI clocks, tempo, FL playing) as channel-16 CCs, only when they change, plus whether the pads play notes (`bindings.pads_play_notes`); recognises the bridge's hello and no-clock warning | `BridgeLink`, `rate_clocks`, `is_hello`, the `CC_*` numbers | `device`, `midi` |
 | [feedback.py](flc_maschine/feedback.py) | Notices the script's own output coming back as input (a MIDI settings mistake, easy with loopMIDI ports) and trips. Sure signs: any note, aftertouch or CC on channels 2 or 3, which only the HSB colour messages use (except channel-mode CCs 120–127, which the script never sends but FL does, on every channel, e.g. All Notes Off after an input overflow; the controller swallows those quietly); any channel-16 message other than the hello in bridge mode. Otherwise, repeated look-alikes: `ECHO_LIMIT` inputs within `ECHO_PERIOD`, each matching a mono LED message sent in the last `ECHO_WINDOW`. Once tripped, the controller swallows all input and sends nothing until the script is reloaded | `FeedbackGuard`, `WARNING`, `ECHO_*`, `clock` | `midi` |
 | [log.py](flc_maschine/log.py) | `[FLC MK2]` prefixed output; optional raw MIDI trace | `info`, `trace_midi`, `TRACE_MIDI` | No |
 | [diagnostics.py](flc_maschine/diagnostics.py) | **Off by default (`ENABLED = False`).** Crash log that survives FL crashing: writes `flc_debug.log` (next to the entry script) a line at a time. The entry script runs every callback through `run` (counted, timed, `> name [t<thread id>]` and `< name` lines except for `OnIdle`, exceptions logged and re-raised); `tick` writes a stats line every 5 s (call counts, renders, state sizes). Memory counters (`MEMORY_STATS`) and full-GC logging (`WATCH_GC`) are optional and off by default: they were ruled out as useful, and are suspected of contributing to crashes. Never use `gc.get_objects()` here: it fails in FL's Python. Switch off with `ENABLED = False` | `run`, `note`, `count`, `tick`, `start`, `ENABLED`, `LOG_FILE` | `general` (version only) |
@@ -204,7 +205,8 @@ The other callbacks:
 | [handlers/channel_knobs.py](flc_maschine/handlers/channel_knobs.py) | E1–E8, the selected channel's own settings. E1–E3 and E5–E7 step a channel REC event (`channels.getRecEventId(ch) + REC_Chan_Vol / Pan / Pitch / GateTime / TimeOfs / SwingMix`) with `channels.incEventValue(id, delta, EKRes × scale)` and write it with `general.processRECEvent(..., REC_UpdateValue | REC_UpdateControl | REC_ShowHint)`, so FL moves its knob and shows the value in the hint bar. E4 sets the pitch range with `channels.setChannelPitch(ch, semitones, 2)`, one semitone per message, 1 to `pads.MAX_PITCH_RANGE` (the fine-tune REC event, `REC_Chan_OfsPitch`, didn't behave as a fine tune in FL). E8 steps `REC_Chan_FXTrack` one track per message, from Master (0) to the last insert (`mixer.trackCount() - 2`). `KNOBS` holds each knob's offset and step scale | `turn`, `pitch_range`, `mixer_track`, `KNOBS` | `channels`, `general`, `mixer`, `midi`, `ui` |
 | [handlers/channel_controls.py](flc_maschine/handlers/channel_controls.py) | Solo and Mute: toggle solo (`channels.soloChannel`) or mute (`channels.muteChannel`) on the selected Channel Rack channel, whatever window is focused; nothing when no channel is selected. The renderer's `_channel_state` rule lights each button from the snapshot. Shift + Select (Events) runs `open_piano_roll`: `ui.openEventEditor(channels.getRecEventId(ch) + midi.REC_Chan_PianoRoll, midi.EE_PR)` for the selected channel | `solo`, `mute`, `open_piano_roll` | `channels`, `ui`, `midi` |
 | [handlers/pattern_controls.py](flc_maschine/handlers/pattern_controls.py) | Pattern functions. New + Pattern jumps to the next empty pattern. Duplicate clones the current pattern with `patterns.clonePattern()`, first selecting it in the Picker if it isn't selected (`clonePattern` clones the selection; its index argument needs API 43) | `new_pattern`, `duplicate_pattern` | `patterns`, `midi` |
-| [handlers/encoder.py](flc_maschine/handlers/encoder.py) | Master encoder. Turning navigates an open popup menu or the focused window (`NAVIGATION`); pushing does that window's action (`PUSH`; in the Channel Rack, `FPT_ItemMenu` opens the selected channel's right-click menu). Volume, Swing, Tempo, Navigate, Pattern and Grid toggle an override mode that takes over turning to adjust master volume, swing or tempo, or jog between open windows, patterns or main snap settings (`MODES`). Push and turn: while the push is held (`state.push_held`), turning goes to `selection.drag` first, which selects in the Channel Rack or Mixer and takes priority over overrides and navigation; elsewhere the turn is handled as usual. The push's action (`_click`) runs on release, and only if the encoder didn't turn while held (`push_turned`). Encoder Push is in Gate mode in the template so the release arrives | `turn`, `push`, `toggle_mode`, `MODES`, `NAVIGATION`, `PUSH` | `mixer`, `transport`, `ui`, `midi` |
+| [handlers/encoder.py](flc_maschine/handlers/encoder.py) | Master encoder. Turning navigates an open popup menu or the focused window (`NAVIGATION`); pushing does that window's action (`PUSH`; in the Channel Rack, `FPT_ItemMenu` opens the selected channel's right-click menu). Volume, Swing, Tempo, Navigate, Pattern, Grid and Pad Mode toggle an override mode that takes over turning to adjust master volume, swing or tempo, jog between open windows, patterns or main snap settings, or pick the pad mode (`MODES`, whose adjusters take `(state, delta)`). `toggle_mode(mode, hint)` runs `hint(state)` as the override turns on (Pad Mode shows the current pad mode). Push and turn: while the push is held (`state.push_held`), turning goes to `selection.drag` first, which selects in the Channel Rack or Mixer and takes priority over overrides and navigation; elsewhere the turn is handled as usual. The push's action (`_click`) runs on release, and only if the encoder didn't turn while held (`push_turned`). Encoder Push is in Gate mode in the template so the release arrives | `turn`, `push`, `toggle_mode`, `MODES`, `NAVIGATION`, `PUSH` | `mixer`, `transport`, `ui`, `midi` |
+| [handlers/pad_modes.py](flc_maschine/handlers/pad_modes.py) | The Pad Mode override's turn: `step(state, delta)` moves `state.pad_mode` one mode per encoder message through `PAD_MODES`, stopping at the ends, and `show` hints "Pad mode: …", with "(not written yet)" for `NOT_WRITTEN` modes. Each pad mode's bindings are its layer in `bindings.LAYERS` | `step`, `show`, `NAMES`, `NOT_WRITTEN` | `ui` |
 | [handlers/selection.py](flc_maschine/handlers/selection.py) | Push-and-turn drag selection. `TARGETS` holds, per window, where a range starts, how many items there are, and how to select one item exclusively or (de)select one: Channel Rack channels (`selectedChannel`, `channelCount`, `selectOneChannel`, `selectChannel`) and mixer tracks (`trackNumber`, `trackCount() - 1` to leave out the "Current" track, `setActiveTrack`, and `selectTrack`, which only toggles, guarded by `isTrackSelected`). `drag` starts the range at the anchor on the first turn and moves its end one item per encoder message, changing only the item that joins or leaves; it returns False with a popup menu open or neither window focused | `drag`, `TARGETS` | `channels`, `mixer`, `ui`, `midi` |
 | [handlers/presets.py](flc_maschine/handlers/presets.py) | F13/F14: `step(-1/+1)` calls `plugins.prevPreset` / `nextPreset` on the selected channel's plugin, after checking there is a selection, a plugin (`plugins.isValid`) and presets (`getPresetCount`), each with a hint. The change is asynchronous: `getName(FPN_Preset)` can still read the old name or "" straight after. So the handler stores `(channel, old name, PRESET_WAIT_TICKS)` in `state.preset_hint`, and `show_preset_name`, called from `OnIdle`, shows "Preset: name" once the name changes, or after the wait | `step`, `show_preset_name`, `PRESET_WAIT_TICKS` | `plugins`, `channels`, `ui`, `midi` |
 | [handlers/mixer_tracks.py](flc_maschine/handlers/mixer_tracks.py) | F16: FL's "Assign selected to free mixer track(s)" (Ctrl+L), which has no API call. `empty_tracks()` lists inserts 1 to `trackCount() - 2` (leaving out the "Current" track) with no channel routed to them, read across all groups (`getTargetFxTrack(i, True)` for `channelCount(1)` channels), no effect in any of `EFFECT_SLOTS` (`isTrackPluginValid`) and their default name ("Insert N" or ""). `assign_free_track` gives each selected channel the next one: it routes it with the `REC_Chan_FXTrack` REC event (as E8 does), copies the channel's name and colour (`setTrackName`, `setTrackColor`) and scrolls the Mixer to the first (`setTrackNumber(t, curfxScrollToMakeVisible)`) | `assign_free_track`, `empty_tracks` | `channels`, `mixer`, `general`, `ui`, `midi` |
@@ -212,7 +214,7 @@ The other callbacks:
 | [handlers/transport_controls.py](flc_maschine/handlers/transport_controls.py) | Transport buttons. Step Left/Right move to the previous/next grid line of FL's main snap (`ui.getSnapMode`), sized from FL's timebase (`general.getRecPPQ`, `getRecPPB`). The position is read with `mixer.getSongTickPos()`, because `transport.getSongPos` stays at 0 in Song mode while stopped ([known-issues.md](known-issues.md)) | `restart`, `play`, `record`, `toggle_song_mode`, `metronome`, `count_in`, `step_left`, `step_right`, `snap_ticks`, `next_position` | `transport`, `general`, `mixer`, `ui`, `midi` |
 | [handlers/ui_commands.py](flc_maschine/handlers/ui_commands.py) | Buttons that send one FL command per press. F1 Menu sends `FPT_Menu`, F9 Alt Menu `FPT_ItemMenu` (the item's context menu), F2 and F10 Esc `FPT_Escape`; Master Left and Right send `FPT_Left` and `FPT_Right`. Enter (`enter`) sends `FPT_Enter`, except in the Channel Rack with no popup menu open, where it opens the selected channel's plugin window (`channels.showCSForm(channel, 1)`, which opens a plugin's window or a sampler's channel settings; `showEditor` did nothing in FL 2025). `send` takes an optional value for jog commands: shift Pads 7/8 (Nudge Left/Right) send `FPT_TempoJog` −1/+1, a 0.1 BPM tempo step. `open_menu_then` opens a menu and queues follow-up commands, which `run_menu_commands` sends from `OnIdle` once FL reports the menu open (dropping them after `MENU_WAIT_TICKS`). New + Browse uses it to reach FL's Add menu: `FPT_Menu`, then `FPT_Right` ×3 ([known-issues.md](known-issues.md)) | `send`, `enter`, `open_menu_then`, `run_menu_commands` | `transport`, `ui`, `channels` |
 | [handlers/windows.py](flc_maschine/handlers/windows.py) | BROWSE and F5–F8: show and focus a window, or hide it if already focused | `toggle` | `ui` |
-| [handlers/pads.py](flc_maschine/handlers/pads.py) | Pads: rewrite the note to the selected group's note and pass it to FL. While fixed velocity (Pad Mode) is on, note-ons are also rewritten to velocity `FIXED_VELOCITY` (127). `transpose(semitones)` is shift Pads 13–16 (Semitone/Octave −/+): it moves the selected channel's pitch (FPC channels included), widening the channel's pitch range to the next of `PITCH_RANGE_STEPS` when needed, up to ±`MAX_PITCH_RANGE`, and shows the result in FL's hint bar | `play`, `toggle_fixed_velocity`, `FIXED_VELOCITY`, `transpose`, `PITCH_RANGE_STEPS`, `MAX_PITCH_RANGE` | No |
+| [handlers/pads.py](flc_maschine/handlers/pads.py) | Pads: rewrite the note to the selected group's note and pass it to FL (`_play`). `play` is Default pad mode, with FPC's banks on an FPC channel; `play_keyboard` is Keyboard pad mode, always chromatic. Both are marked `plays_notes`, which `bindings.pads_play_notes` checks. `follow_fpc_selection` (the Group E jump) only acts in Default pad mode. While fixed velocity (F15) is on, note-ons are also rewritten to velocity `FIXED_VELOCITY` (127). `transpose(semitones)` is shift Pads 13–16 (Semitone/Octave −/+): it moves the selected channel's pitch (FPC channels included), widening the channel's pitch range to the next of `PITCH_RANGE_STEPS` when needed, up to ±`MAX_PITCH_RANGE`, and shows the result in FL's hint bar | `play`, `play_keyboard`, `follow_fpc_selection`, `toggle_fixed_velocity`, `FIXED_VELOCITY`, `transpose`, `PITCH_RANGE_STEPS`, `MAX_PITCH_RANGE` | No |
 | [rendering/fl_state.py](flc_maschine/rendering/fl_state.py) | Read FL Studio's state once per render: focused window, transport (playing, recording, song mode), selected channel's colour and solo/mute state, selected FPC and its pads, and for the bridge the tempo (normalised: some FL versions report BPM × 1000) | `FlSnapshot`, `WINDOWS` | `midi`, `ui`, `transport`, `channels`, and `plugins` through `fpc.py` (reads only) |
 | [rendering/renderer.py](flc_maschine/rendering/renderer.py) | Decide every LED's value | `render`, `RULES`, `WINDOW_BUTTONS`, `MODE_BUTTONS`, `MODE_COLORS`, `LIT_BRIGHTNESS`, `DIM_BRIGHTNESS` | `midi` constants; no calls. Reads `bindings.MODE_CONTROLS` for `_mode_highlight`, which must stay the last rule |
 | [rendering/colors.py](flc_maschine/rendering/colors.py) | HSB colour tuples; converts FL's `0xRRGGBB` colours | `rgb_to_hsb`, `with_brightness`, `OFF`, `WHITE`, `MAX` | No |
@@ -250,12 +252,13 @@ Handler modules that perform FL actions, such as `handlers/windows.py`, import w
 |---|---|
 | `mode` | The global mode: `SHIFT` (toggled by F3 or F11), `NEW` (toggled by F4, one-shot), `COLOR` (toggled by F12) or `None`. Only one is on at a time. Its layer takes priority over `base`, and only its button(s) (`renderer.MODE_BUTTONS`) and the controls in `bindings.MODE_CONTROLS[mode]` (bound to a real function, not a placeholder) are lit, RGB ones in their `renderer.MODE_COLORS` colour. |
 | `held` | Control id → the handler that took its press, for gate controls currently held down |
-| `encoder_mode` | The master encoder's override mode, `"VOLUME"`, `"SWING"`, `"TEMPO"`, `"NAVIGATE"`, `"PATTERN"` or `"GRID"`, toggled by those buttons; `None` when off. The active button is lit. Entering Shift or New mode clears it. |
+| `encoder_mode` | The master encoder's override mode, `"VOLUME"`, `"SWING"`, `"TEMPO"`, `"NAVIGATE"`, `"PATTERN"`, `"GRID"` or `"PAD_MODE"`, toggled by those buttons; `None` when off. The active button is lit. Entering Shift or New mode clears it. |
 | `push_held`, `push_turned` | The encoder push is held down, and the encoder turned while it was held (which cancels the click on release). |
 | `drag_window`, `drag_anchor`, `drag_end` | A push-and-turn selection drag: the window it selects in (`None` when none is running), the index the range started at, and its moving end (see `selection.py`). |
 | `pad_group` | The pad group (0–7 for A–H) chosen with the Group buttons. It picks the pads' notes, and its Group button is lit brightest. Starts on 3 (Group D), which holds middle C. |
 | `sounding` | Pad id → the note sent when it was pressed, so its aftertouch and note-off use that note even if the group changes while it is held |
-| `fixed_velocity` | Toggled by Pad Mode, which is lit while it is on. Pads then play at full velocity (`pads.FIXED_VELOCITY`); note-offs and aftertouch are unchanged. |
+| `pad_mode` | The pad mode, `DEFAULT_PADS`, `KEYBOARD` or `SEQUENCER`, chosen with the encoder while the Pad Mode override is on; it stays when the override is off. Its layer is searched between the global mode's and base. |
+| `fixed_velocity` | Toggled by F15, which is lit while it is on. Pads then play at full velocity (`pads.FIXED_VELOCITY`); note-offs and aftertouch are unchanged. |
 | `note_repeat` | Note Repeat's mode in bridge mode: `note_repeat.OFF` (0, falsy), `ON` or `TRIPLETS`, cycled by its button, which is lit in On and Triplets. Sent to the bridge (as on/off plus the rate) by `BridgeLink`. Always `OFF` in hardware mode. While it isn't `OFF`, the encoder only changes `note_repeat_rate`. |
 | `macro_values`, `macro_params`, `macro_logged` | Macros: each plugin parameter's running value and the value FL made of it, keyed by (plugin index, slot, parameter); each plugin's parameter names, looked up once; and what has been logged this session (parameter lists, missing names). |
 | `note_repeat_rate` | Division index (0–3) into the current mode's `note_repeat.RATES`, default 2 (1/16 or 1/16T). Independent of FL's snap. |
@@ -263,7 +266,7 @@ Handler modules that perform FL actions, such as `handlers/windows.py`, import w
 | `menu_commands`, `menu_wait` | FL commands waiting for a popup menu to open, and the `OnIdle` ticks left before giving up. Set by `ui_commands.open_menu_then`. |
 | `preset_hint` | After F13/F14: `(channel, old preset name, OnIdle ticks left)` until the new preset's name is shown, else `None`. Set by `presets.step`, cleared by `presets.show_preset_name`. |
 
-`active_layers()` returns the binding layers to search, highest priority first: `[mode, "base"]`, e.g. `["shift", "base"]`, or `["base"]` when no mode is on.
+`active_layers()` returns the binding layers to search, highest priority first: `[mode, pad_mode, "base"]`, e.g. `["shift", "default", "base"]`, or `[pad_mode, "base"]` when no global mode is on. The global mode comes first, so Shift pads work in every pad mode.
 
 ### Frames
 
@@ -323,12 +326,12 @@ In MIDI mode the MK2 sends exactly what `NI Maschine MK2/FL Complete.ncm2` says.
 
 Middle C (60, C5 in FL Studio) is Group D's pad 13, and the script starts on Group D. The selected group's button is lit brightest.
 
-**FPC mode.** While the selected channel is FPC ([fpc.py](flc_maschine/fpc.py) checks `plugins.getPluginName`), the pads play FPC's own pads instead:
+**FPC mode.** In Default pad mode, while the selected channel is FPC ([fpc.py](flc_maschine/fpc.py) checks `plugins.getPluginName`), the pads play FPC's own pads instead (Keyboard pad mode plays FPC chromatically, like any channel):
 
 - **Banks.** Group E plays bank A (FPC pads 0–15) and Group F plays bank B (16–31). The mapping is `FPC_BANK_FOR_GROUP` in [notes.py](flc_maschine/notes.py). FPC numbers its pads from the bottom left, like the MK2, so pad *n* plays FPC pad *n* − 1 of the bank.
 - **Notes and empty pads** come from `plugins.getPadInfo`, and **colours** from `plugins.getColor` with `GC_Semitone`, so re-assigned or recoloured FPC pads are followed. Empty pads are dark and silent. `getPadInfo`'s colour option returns the same values; Novation's FLkey script uses `getColor`. **Known issue:** FL Studio returns the same grey for every bank B pad from both calls, so Group F's pads light grey. See [known-issues.md](known-issues.md).
 - **Other groups.** A–D, G and H are dark and silent, and their Group buttons are off.
-- **Auto-jump.** Newly selecting an FPC channel jumps to Group E, the bank A group.
+- **Auto-jump.** Newly selecting an FPC channel jumps to Group E, the bank A group. Only in Default pad mode, which is also the only mode that records the FPC, so turning back to Default on an FPC jumps then.
 
 The Akai Fire hard-codes FPC's default notes instead; the Novation FLkey 2 queries FPC the same way. The snapshot reads both banks (64 plugin calls) on every render while FPC is selected. If that proves slow, cache the banks and re-read them on the plugin colour and name refresh flags.
 
@@ -374,12 +377,12 @@ A handler is any function `handler(controller, ev)`. It receives every event for
 
 ### Add an encoder override
 
-Volume, Swing and Tempo are toggled overrides for the master encoder ([handlers/encoder.py](flc_maschine/handlers/encoder.py)). To add another:
+Volume, Swing, Tempo, Navigate, Pattern, Grid and Pad Mode are toggled overrides for the master encoder ([handlers/encoder.py](flc_maschine/handlers/encoder.py)). To add another:
 
-1. Write a function that takes the encoder's signed `delta` and adjusts something, and add it to `MODES` under the id of the button that should toggle it:
+1. Write a function that takes the controller state and the encoder's signed `delta` and adjusts something, and add it to `MODES` under the id of the button that should toggle it:
 
    ```python
-   def _pattern(delta):
+   def _pattern(state, delta):
        transport.globalTransport(midi.FPT_PatternJog, delta)
 
 
@@ -389,7 +392,7 @@ Volume, Swing and Tempo are toggled overrides for the master encoder ([handlers/
    }
    ```
 
-2. Bind the button in `bindings.py`: `"PATTERN": encoder.toggle_mode("PATTERN")`.
+2. Bind the button in `bindings.py`: `"PATTERN": encoder.toggle_mode("PATTERN")`. Pass `hint=` to show something as the override turns on, as Pad Mode does.
 
 The renderer's `_encoder_mode` rule lights whichever button's mode is active, so no LED code is needed.
 
@@ -406,6 +409,8 @@ def _focused_window(state, fl, frame):
 
 RULES = [
     _channel_color,
+    _pad_layer,  # pads bound to placeholders in the pad mode's layer go dark
+    _keyboard_pads,  # Keyboard pad mode: piano-key colours
     _focused_window,
     _transport,
     _channel_state,
@@ -428,6 +433,8 @@ Shift and New mode are the worked examples. A global mode needs:
 4. **Its button(s) in `renderer.MODE_BUTTONS`** (a tuple: Shift has F3 and F11), so `_mode_highlight` lights it and the controls in its layer while it is on.
 
 Wrap a layer's handlers in `modes.once(...)` to make the mode one-shot, as New mode does.
+
+**A pad mode** (Keyboard, Sequencer) is a layer too, but it isn't toggled or highlighted: `state.pad_mode` names it, the Pad Mode override picks it (`pad_modes.step`), and `active_layers()` puts it between the global mode and base, so it replaces only the controls it binds. To write one, replace its placeholders in `bindings.py`, remove it from `pad_modes.NOT_WRITTEN`, and add renderer rules for its lights (placeholder pads are dark through `_pad_layer`). If its pad handlers are marked `plays_notes` (as `pads.play` and `pads.play_keyboard` are), the bridge repeats them automatically (`pads_play_notes`). Keyboard is the written example: its layer binds `pads.play_keyboard`, and `renderer._keyboard_pads` lights it.
 
 ### Use another FL module
 
@@ -461,7 +468,7 @@ python3 -m unittest discover -s tests -v
 - LEDs at init and deinit.
 - Pads and Group buttons in the selected channel's colour, the bright Group button following the selection, and only changed HSB components being resent.
 - `colors.rgb_to_hsb` conversions.
-- F3 toggling shift and its LED, F11 as a second Shift with both lit; F1, F2, F9 and F10 sending Menu, Escape, Item Menu and Escape (F1 the plain menu in every window); F15 toggling fixed velocity with Pad Mode, both lit; Master Left, Right and Enter sending their commands; Enter in the Channel Rack opening the selected channel's plugin (nothing without a selection; popup menus still get Enter).
+- F3 toggling shift and its LED, F11 as a second Shift with both lit; F1, F2, F9 and F10 sending Menu, Escape, Item Menu and Escape (F1 the plain menu in every window); F15 toggling fixed velocity and its LED; Master Left, Right and Enter sending their commands; Enter in the Channel Rack opening the selected channel's plugin (nothing without a selection; popup menus still get Enter).
 - Shift mode (`ShiftModeTest`): Shift + Browse opening the plugin picker; only F3, F11 and controls with an implemented shift function lit (ALL's placeholder dim), shift pads in their function colours even in FPC mode, Group buttons dark, and state lights returning when shift turns off.
 - Render scheduling (`RenderSchedulingTest`): `OnMidiMsg` and `OnRefresh` neither read FL nor write LEDs, many events cause one render on the next idle, pressed LEDs are reasserted then, and FPC pad presses use the snapshot.
 - Crash mitigations (`CrashMitigationTest`): no render on aftertouch; no FL reads while unsafe, and the catch-up render from `OnIdle`.
@@ -495,7 +502,9 @@ python3 -m unittest discover -s tests -v
 - Encoder (`EncoderTest`): override toggling and switching with their LEDs, master volume steps and clamping, swing, tempo, window, pattern and snap jogs, entering Shift or New clearing the override, navigation and push per focused window, popup menus taking priority, and overrides taking priority over navigation.
 - LED reassertion after a press.
 - Pads passing through to FL at the selected group's notes; every note 0–127 reachable exactly once; note-off and aftertouch using the note sent at press, across group and shift changes.
-- Pad Mode fixed velocity: toggling and its LED, note-ons at 127 with the note still translated, note-offs and aftertouch unchanged, and FPC mode too.
+- Keyboard pad mode (`KeyboardModeTest`): chromatic notes for the selected group, release and aftertouch on the sounding note, fixed velocity; pads lit as piano keys (C white, black keys at `BLACK_KEY_BRIGHTNESS`); an FPC channel played and lit chromatically with all Group buttons lit and no jump; back to Default on an FPC jumping to Group E; Shift pads overriding.
+- Pad modes (`PadModeTest`): Pad Mode toggling the override (not fixed velocity) with a hint; turning through Default, Keyboard and Sequencer, one per message and stopping at the ends; the choice staying after the override; Sequencer pads silent, logged and dark with Group buttons still working; Shift pads in any pad mode; Default playing again; Shift clearing the override. In bridge mode, CC 5 = 0 in Sequencer and 127 in Keyboard and Default.
+- F15 fixed velocity: toggling and its LED, note-ons at 127 with the note still translated, note-offs and aftertouch unchanged, and FPC mode too.
 - FPC mode (`FpcModeTest`): the jump to Group E, both banks' notes and colours, empty pads, silent and dark other groups, and returning to the chromatic layout.
 - Shifted pads being handled by the script.
 - A release following its press across a shift toggle.

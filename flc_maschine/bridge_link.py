@@ -23,6 +23,7 @@ Keep these numbers in step with mk2_bridge/bridge.py.
 import device
 import midi
 
+from . import bindings
 from .handlers import note_repeat
 
 CHANNEL = 15  # MIDI channel 16
@@ -74,7 +75,7 @@ class BridgeLink:
         self._send_14bit("rate", CC_RATE, CC_RATE_LSB, note_repeat.rate_clocks(state))
         self._send_14bit("tempo", CC_TEMPO, CC_TEMPO_LSB, max(0, min(MAX_14BIT, int(round(fl.tempo * 10)))))
         self._send_7bit("playing", CC_PLAYING, 127 if fl.playing else 0)
-        self._send_7bit("pads", CC_PADS_PLAY_NOTES, 0 if state.mode else 127)
+        self._send_7bit("pads", CC_PADS_PLAY_NOTES, 127 if bindings.pads_play_notes(state) else 0)
 
     def _send_7bit(self, key, control, value):
         if self._sent.get(key) != value:

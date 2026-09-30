@@ -24,6 +24,7 @@ from .handlers import (
     groups,
     modes,
     note_repeat,
+    pad_modes,
     pads,
     pattern_controls,
     presets,
@@ -31,7 +32,7 @@ from .handlers import (
     ui_commands,
     windows,
 )
-from .state import BASE, COLOR, NEW, SHIFT
+from .state import BASE, COLOR, DEFAULT_PADS, KEYBOARD, NEW, SEQUENCER, SHIFT
 
 _base = {
     # Top
@@ -57,7 +58,7 @@ _base = {
     "F12": modes.toggle(COLOR),  # Color
     "F13": presets.step(-1),  # Previous preset
     "F14": presets.step(+1),  # Next preset
-    "F15": pads.toggle_fixed_velocity,  # Fixed velocity (as Pad Mode)
+    "F15": pads.toggle_fixed_velocity,  # Fixed velocity
     "F16": mixer_tracks.assign_free_track,  # Auto mixer track
     # Master
     "VOLUME": encoder.toggle_mode("VOLUME"),
@@ -80,7 +81,7 @@ _base = {
     # Pads area buttons
     "SCENE": transport_controls.toggle_song_mode,
     "PATTERN": encoder.toggle_mode("PATTERN"),
-    "PAD_MODE": pads.toggle_fixed_velocity,
+    "PAD_MODE": encoder.toggle_mode("PAD_MODE", hint=pad_modes.show),  # the pad mode override
     "NAVIGATE": encoder.toggle_mode("NAVIGATE"),
     "DUPLICATE": pattern_controls.duplicate_pattern,
     "SELECT": unimplemented(),
@@ -143,11 +144,21 @@ _new = {
 # Color mode is latched like Shift: each pad colours the selected channel(s), and it stays on.
 _color = {"PAD_%d" % (_i + 1): channel_colors.pick(_i) for _i in range(16)}
 
+# Pad modes (handlers/pad_modes.py): searched between the global mode's layer and base, so each
+# replaces only what it binds. Default binds nothing: the base layer's pads are Default. Keyboard
+# plays the chromatic layout on every channel (no FPC banks).
+_default_pads = {}
+_keyboard_pads = {"PAD_%d" % (_i + 1): pads.play_keyboard for _i in range(16)}
+_sequencer_pads = {"PAD_%d" % (_i + 1): unimplemented("sequencer mode") for _i in range(16)}
+
 LAYERS = {
     BASE: _base,
     SHIFT: _shift,
     NEW: _new,
     COLOR: _color,
+    DEFAULT_PADS: _default_pads,
+    KEYBOARD: _keyboard_pads,
+    SEQUENCER: _sequencer_pads,
 }
 
 def _implemented(layer):
@@ -180,3 +191,11 @@ def lookup(state, control_id, bridge=False):
         if handler is not None:
             return handler
     return None
+
+
+def pads_play_notes(state):
+    """Whether the MK2 bridge should treat the pads as notes and repeat them: no global mode is on
+    (as before pad modes; New mode's unbound pads still play but aren't repeated), and the pad
+    mode's pads play notes (handlers marked plays_notes, such as pads.play and play_keyboard)."""
+    return state.mode is None and all(getattr(lookup(state, "PAD_%d" % (i + 1)), "plays_notes", False)
+                                      for i in range(16))
