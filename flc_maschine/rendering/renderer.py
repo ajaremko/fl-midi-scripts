@@ -103,7 +103,8 @@ def _focused_window(state, fl, frame):
 def _transport(state, fl, frame):
     frame["PLAY"] = fl.playing
     frame["REC"] = fl.recording
-    frame["SCENE"] = fl.song_mode
+    frame["CONTROL"] = fl.song_mode  # Control and Step both switch it (their labels don't match)
+    frame["STEP"] = not fl.song_mode
 
 
 def _channel_state(state, fl, frame):

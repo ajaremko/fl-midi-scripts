@@ -30,3 +30,15 @@ length = 16  # getPatternLength() of every pattern, in steps
 
 def getPatternLength(index):
     return length
+
+names = {}  # pattern index -> name (default "Pattern N")
+
+
+def getPatternName(index):
+    return names.get(index, "Pattern %d" % index)
+
+
+def setPatternLength(index, steps):
+    global length
+    calls.append(("setPatternLength", index, steps))
+    length = steps

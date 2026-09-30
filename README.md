@@ -180,8 +180,8 @@ These are all of the controls present on the hardware with their location, label
 
 | Area   | Label       | Alt Label     | Type    | Functionality                           | Notes                                               |
 |--------|-------------|---------------|---------|-----------------------------------------|-----------------------------------------------------|
-| Top    | Control     | MIDI          | Button  |                                         |                                                     |
-| Top    | Step        | Instance      | Button  |                                         |                                                     |
+| Top    | Control     | MIDI          | Button  | switch between pattern and song (arrangement) playback, as Step does; a function that doesn't match the label | illuminated in song mode |
+| Top    | Step        | Instance      | Button  | switch between pattern and song (arrangement) playback, as Control does; a function that doesn't match the label | illuminated in pattern mode |
 | Top    | Browse      |               | Button  | focus browser window; press again to hide (shift mode: open the plugin picker; new mode: open FL's Add menu, to add a channel) | illuminated when browser window is focused          |
 | Top    | F1          |               | Button  | Menu: open the focused window's menu |  |
 | Top    | F2          |               | Button  | Esc: escape |  |
@@ -225,7 +225,7 @@ These are all of the controls present on the hardware with their location, label
 | Master | Right       |               | Button  | right (like the right arrow key in the focused window) |                                                     |
 | Master | Enter       |               | Button  | enter; in the Channel Rack, open the selected channel's plugin |                                                     |
 | Master | Note Repeat | Tap           | Button  | (Bridge controller type only) press to cycle **Off → On → Triplets**. On: held pads retrigger at a straight division (1/4, 1/8, 1/16, 1/32); Triplets: at a triplet division (1/4T, 1/8T, 1/16T, 1/32T). Locked to FL's clock while playing, the first note too: a press within a short grace window after a grid line (1/8 of the division, at most 30 ms) plays at once, any other press plays on the next grid line, and a quick tap still plays one note there. While on, turning the master encoder changes the division within the mode (clockwise faster); switching modes keeps the division (1/16 ↔ 1/16T). FL's hint bar shows the mode and division. Independent of FL's grid snap. Pads in Shift, New or Color mode are functions, and aren't held back or repeated. Shift: tap tempo (both controller types) | lit in On and Triplets; needs the MK2 bridge running, and Send master sync for repeats locked to the song |
-| Master | Encoder     |               | Encoder | turn: navigate the focused window (up/down, or left/right in the mixer) or an open menu; press: enter (browser, menus), open menu (mixer, playlist, piano roll), open the selected channel's item (right-click) menu (channel rack); a press acts on release, and not at all if the encoder turned while held. Push and turn: select a range of channels (channel rack) or mixer tracks (mixer), starting at the selected channel or current track | While Note Repeat is on, turning only changes its rate. Otherwise the overrides (Volume, Swing, Tempo, Grid, Pattern, Navigate, Pad Mode) take priority for turning, but push and turn in the channel rack or mixer always selects. Needs Encoder Push in Gate mode in the template (reload the updated .ncm2 in Controller Editor) |
+| Master | Encoder     |               | Encoder | turn: navigate the focused window (up/down, or left/right in the mixer) or an open menu; press: enter (browser, menus), open menu (mixer, playlist, piano roll), open the selected channel's item (right-click) menu (channel rack); a press acts on release, and not at all if the encoder turned while held. Push and turn: select a range of channels (channel rack) or mixer tracks (mixer), starting at the selected channel or current track | While Note Repeat is on, turning only changes its rate. Otherwise the overrides (Volume, Swing, Tempo, Grid, Scene, Pattern, Navigate, Pad Mode) take priority for turning, but push and turn in the channel rack or mixer always selects. Needs Encoder Push in Gate mode in the template (reload the updated .ncm2 in Controller Editor) |
 | Groups | A -> H      |               | Button  | select pad group: the pads play 16 notes from group × 16 (A 0–15, B 16–31 … H 112–127; middle C is Group D pad 13). While the selected channel is FPC: Group E plays bank A and Group F bank B, in FPC's pad colours; empty pads and the other groups are dark and silent; selecting an FPC jumps to Group E | lit in the selected channel's colour, brightest when selected; starts on Group D; only E and F lit while FPC is selected |
 | Transport | Restart     | Loop          | Button  | stop, jump to the start and play; shift: toggle FL's loop recording | lit in shift mode |
 | Transport | Left        | Step Left     | Button  | move the song position to the previous snap grid line | uses FL's main snap (toolbar); set the Playlist and Piano Roll snap to "Main" so the playhead lands on the same grid |
@@ -234,8 +234,8 @@ These are all of the controls present on the hardware with their location, label
 | Transport | Play        | Metro         | Button  | play / pause (shift mode: toggle metronome) | illuminated while playing                           |
 | Transport | Rec         | Count-In      | Button  | toggle recording (shift mode: toggle count-in) | illuminated while recording                         |
 | Transport | Erase       |               | Button  |                                         |                                                     |
-| Pads   | Scene       |               | Button  | switch between pattern and song mode | illuminated in song mode |
-| Pads   | Pattern     |               | Button  | toggle encoder override: the encoder jogs through patterns (new mode: start a new pattern) | illuminated while the override is on |
+| Pads   | Scene       |               | Button  | toggle encoder override: the encoder jogs through patterns (new mode: start a new pattern) | illuminated while the override is on |
+| Pads   | Pattern     |               | Button  | toggle encoder override: the encoder lengthens or shortens the current pattern by a bar per click (see Pattern Length) | illuminated while the override is on |
 | Pads   | Pad Mode    | Keyboard      | Button  | toggle encoder override: the encoder picks the pad mode (Channels, Pads, Keyboard, Sequencer, Mixer; see Pad Modes) | illuminated while the override is on |
 | Pads   | Navigate    | Mix           | Button  | toggle encoder override: the encoder jogs between open windows | illuminated while the override is on |
 | Pads   | Duplicate   |               | Button  | duplicate (clone) the current pattern   |                                                     |
@@ -251,7 +251,7 @@ These are all of the controls present on the hardware with their location, label
 | Pads   | Pad 7       | Nudge Left    | Pad     | lower the project tempo 0.1 BPM (shift mode) | lit blue in shift mode                         |
 | Pads   | Pad 8       | Nudge Right   | Pad     | raise the project tempo 0.1 BPM (shift mode) | lit blue in shift mode                         |
 | Pads   | Pad 9       | Clear         | Pad     | delete (shift mode)                     | lit red in shift mode                               |
-| Pads   | Pad 10      | Clear Auto    | Pad     | cut (shift mode); the one pad whose function doesn't match its label | lit yellow in shift mode |
+| Pads   | Pad 10      | Clear Auto    | Pad     | cut (shift mode); a pad whose function doesn't match its label (as Control and Step don't) | lit yellow in shift mode |
 | Pads   | Pad 11      | Copy          | Pad     | copy (shift mode)                       | lit cyan in shift mode                              |
 | Pads   | Pad 12      | Paste         | Pad     | paste (shift mode)                      | lit cyan in shift mode                              |
 | Pads   | Pad 13      | Semitone Up   | Pad     | raise the selected channel's pitch 1 semitone (shift mode) | lit purple in shift mode |
@@ -264,6 +264,17 @@ These are all of the controls present on the hardware with their location, label
 - new mode w buttons for adding new patterns/channels, etc
 - pads light up on midi out 
 - encoder controls active screen + overrides
+
+### Pattern Length
+
+Pattern turns on an encoder override that changes the current pattern's length. The hint names the pattern and its length ("Pattern 3: 2 bars") when the override turns on and after every click.
+
+- **One bar per click:** each click adds or removes a bar, snapping to whole bars (a 1.25-bar pattern goes to 2 bars up, or 1 bar down). It never goes below one bar. Bars follow the project's time signature.
+- **Playback mode:** Control and Step (top left) both switch between pattern and song (arrangement) playback. Control lights in song mode and Step in pattern mode; their labels don't match.
+- **Picking the pattern:** Scene's override jogs through the patterns, and New + Scene starts a new one.
+- **Pitfall:** setting a length fixes it: the pattern no longer grows by itself, e.g. when Sequencer mode sets a step past its end.
+- **Pitfall:** it needs FL's MIDI scripting API 39 (`patterns.setPatternLength`). On older versions the hint says so and nothing changes.
+- **Pitfall:** the manual says pattern lengths are in beats, but FL reports steps, and the script assumes setting them uses steps too. If a click leaves the hint showing a fraction ("4.25 bars"), that assumption is wrong: report it.
 
 ### Pad Modes
 
@@ -371,7 +382,7 @@ The pads edit the selected Channel Rack channel's step sequencer, in the current
 F3 or F11 toggles shift mode, F4 toggles new mode and F12 toggles color mode. Only one of them is on at a time: turning one on turns the others off. The mode's button stays lit while it is on (both F3 and F11 for shift).
 
 - **Shift mode** gives controls their "(shift mode)" function above, such as Browse (plugin picker), Play (metro), Rec (count-in), All (save), Note Repeat (tap tempo), Restart (loop recording), Select (the Piano Roll) and the pads (undo, redo, quantize, clear, copy, paste, …). It stays on until F3 or F11 is pressed again. In shift mode the pads never play notes.
-- **New mode** gives controls their "(new mode)" function: Browse opens FL's Add menu to add a channel, Pattern starts a new pattern, and All saves a new version of the project. New mode is one-shot: using a new-mode function turns it off. Controls without a new-mode function keep their normal function, and new mode stays on.
+- **New mode** gives controls their "(new mode)" function: Browse opens FL's Add menu to add a channel, Scene starts a new pattern, and All saves a new version of the project. New mode is one-shot: using a new-mode function turns it off. Controls without a new-mode function keep their normal function, and new mode stays on.
 - **Color mode** turns the pads into a palette of 16 colours: 16 hues round the colour wheel, pad 1 red onwards.
   - **Picking:** pressing a pad gives that colour to every selected Channel Rack channel (all of a push-and-turn selection), and the hint says "Channel colour: 9". With no channel selected, the hint says so.
   - **Current colour:** the pad matching the selected channel's current colour is brightest.

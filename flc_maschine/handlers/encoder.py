@@ -3,9 +3,9 @@ Master encoder.
 
 Turning navigates whatever is focused: an open popup menu first, otherwise the focused window
 (up/down, or left/right in the mixer). Pushing does that window's action. Volume, Swing, Tempo,
-Navigate, Pattern, Grid and Pad Mode toggle an override mode; while one is on, turning adjusts
-master volume, swing or tempo, jogs between windows, patterns or snap settings, or picks the pad
-mode (pad_modes.py), instead.
+Navigate, Scene, Pattern, Grid and Pad Mode toggle an override mode; while one is on, turning
+adjusts master volume, swing or tempo, jogs between windows, patterns (Scene) or snap settings,
+changes the current pattern's length (Pattern), or picks the pad mode (pad_modes.py), instead.
 Entering Shift or New mode turns the override off (see modes.toggle).
 
 Push and turn: turning while the encoder is pushed in selects a range of channels (Channel Rack) or
@@ -20,7 +20,7 @@ import transport
 import ui
 
 from .. import events
-from . import channel_pads, mixer_pads, note_repeat, pad_modes, selection
+from . import channel_pads, mixer_pads, note_repeat, pad_modes, pattern_controls, selection
 from .common import on_press
 
 VOLUME_STEP = 0.05  # master volume, 0-1, per encoder step
@@ -57,7 +57,8 @@ MODES = {
     "SWING": _swing,
     "TEMPO": _tempo,
     "NAVIGATE": _jog(midi.FPT_WindowJog),  # between open windows
-    "PATTERN": _jog(midi.FPT_PatternJog),  # through patterns
+    "SCENE": _jog(midi.FPT_PatternJog),  # through patterns (Scene's override)
+    "PATTERN": pattern_controls.step_length,  # the current pattern's length, a bar per message
     "GRID": _jog(midi.FPT_SnapMode),  # through main snap settings
     "PAD_MODE": pad_modes.step,  # Channels, Pads, Keyboard, Sequencer, Mixer
 }

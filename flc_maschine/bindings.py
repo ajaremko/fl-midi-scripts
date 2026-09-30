@@ -39,8 +39,10 @@ from .state import BASE, CHANNELS, COLOR, KEYBOARD, MIXER, NEW, PADS, SEQUENCER,
 
 _base = {
     # Top
-    "CONTROL": unimplemented(),
-    "STEP": unimplemented(),
+    # Control and Step both switch pattern / song playback; their labels don't match (Control is lit
+    # in song mode, Step in pattern mode).
+    "CONTROL": transport_controls.toggle_song_mode,
+    "STEP": transport_controls.toggle_song_mode,
     "BROWSE": windows.toggle(midi.widBrowser),
     "SAMPLING": unimplemented(),
     "ALL": unimplemented(),
@@ -82,8 +84,8 @@ _base = {
     "REC": transport_controls.record,
     "ERASE": unimplemented(),
     # Pads area buttons
-    "SCENE": transport_controls.toggle_song_mode,
-    "PATTERN": encoder.toggle_mode("PATTERN"),
+    "SCENE": encoder.toggle_mode("SCENE"),  # the pattern override: the encoder picks the pattern
+    "PATTERN": encoder.toggle_mode("PATTERN", hint=pattern_controls.show_length),  # pattern length
     "PAD_MODE": encoder.toggle_mode("PAD_MODE", hint=pad_modes.show),  # the pad mode override
     "NAVIGATE": encoder.toggle_mode("NAVIGATE"),
     "DUPLICATE": pattern_controls.duplicate_pattern,
@@ -140,7 +142,7 @@ _new = {
     "BROWSE": modes.once(
         ui_commands.open_menu_then(midi.FPT_Menu, [midi.FPT_Right] * 3)
     ),
-    "PATTERN": modes.once(pattern_controls.new_pattern),
+    "SCENE": modes.once(pattern_controls.new_pattern),
     "ALL": modes.once(ui_commands.send(midi.FPT_SaveNew)),  # save new version
 }
 

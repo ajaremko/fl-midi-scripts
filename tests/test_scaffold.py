@@ -32,7 +32,7 @@ from flc_maschine.state import CHANNELS, COLOR, KEYBOARD, MIXER, NEW, PADS, SEQU
 from flc_maschine import controller as controller_module  # noqa: E402
 from flc_maschine.controller import MaschineMk2  # noqa: E402
 from flc_maschine.rendering import colors, renderer  # noqa: E402
-from flc_maschine.handlers import channel_colors, channel_knobs, macro_knobs, note_repeat, pads, presets, transport_controls, ui_commands  # noqa: E402
+from flc_maschine.handlers import channel_colors, channel_knobs, macro_knobs, note_repeat, pads, pattern_controls, presets, transport_controls, ui_commands  # noqa: E402
 from flc_maschine.rendering.fl_state import FlSnapshot  # noqa: E402
 
 
@@ -179,7 +179,8 @@ class ScaffoldTest(ScriptTestCase):
             expected |= hsb_messages(group_id, (0, 127, renderer.DIM_BRIGHTNESS))
         for control in controls.LED_CONTROLS:
             if control.led == controls.MONO:
-                expected.add((midi.MIDI_CONTROLCHANGE, control.number, 0))
+                lit = control.id == "STEP"  # pattern mode
+                expected.add((midi.MIDI_CONTROLCHANGE, control.number, 127 if lit else 0))
         sent = [unpack(m) for m in device.sent]
         self.assertEqual(len(sent), len(expected))
         self.assertEqual(set(sent), expected)
@@ -823,7 +824,7 @@ class FeedbackGuardTest(ScriptTestCase):
     def test_once_tripped_input_is_ignored_and_nothing_is_sent(self):
         script.OnMidiMsg(FakeEvent(midi.MIDI_CONTROLCHANGE, 80, 5, channel=2))
         del transport.calls[:]
-        event = self.send(cc(controls.BY_ID["SCENE"].number))
+        event = self.send(cc(controls.BY_ID["CONTROL"].number))
         self.assertTrue(event.handled)
         self.assertEqual(transport.calls, [])
         self.refresh()
@@ -837,8 +838,8 @@ class FeedbackGuardTest(ScriptTestCase):
         self.assertTrue(self.controller.guard.tripped)
         self.assertEqual(device.sent, [])
 
-    def test_a_scene_loop_on_channel_1_is_stopped(self):
-        self.send(cc(controls.BY_ID["SCENE"].number))  # toggles song mode, so the Scene LED changes
+    def test_a_song_mode_loop_on_channel_1_is_stopped(self):
+        self.send(cc(controls.BY_ID["CONTROL"].number))  # toggles song mode, so the Control LED changes
         self.run_loop(30)
         self.assertTrue(self.controller.guard.tripped)
         toggles = transport.calls.count(("setLoopMode",))
@@ -847,7 +848,7 @@ class FeedbackGuardTest(ScriptTestCase):
 
     def test_ordinary_presses_do_not_trip_it(self):
         for _ in range(3):
-            self.send(cc(controls.BY_ID["SCENE"].number))
+            self.send(cc(controls.BY_ID["CONTROL"].number))
             self.send(cc(controls.BY_ID["PAD_MODE"].number))
         for _ in range(20):
             self.send(note_on(controls.BY_ID["PAD_1"].number))
@@ -1292,18 +1293,22 @@ class TransportTest(ScriptTestCase):
         self.refresh()
         self.assertTrue(self.led("PLAY"))
 
-    def test_scene_switches_between_pattern_and_song_mode(self):
-        self.press("SCENE")
+    def test_control_and_step_switch_between_pattern_and_song_mode(self):
+        self.assertEqual((self.led("CONTROL"), self.led("STEP")), (False, True))  # pattern mode
+        self.press("CONTROL")
         self.assertEqual(transport.calls, [("setLoopMode",)])
-        self.assertTrue(self.led("SCENE"))  # song mode
+        self.assertEqual((self.led("CONTROL"), self.led("STEP")), (True, False))  # song mode
         self.assertIsNone(self.controller.state.encoder_mode)
-        self.press("SCENE")
-        self.assertFalse(self.led("SCENE"))  # pattern mode
+        del transport.calls[:]
+        self.send(cc(controls.BY_ID["STEP"].number, 0))  # a Toggle button in the template: every message is a press
+        self.assertEqual(transport.calls, [("setLoopMode",)])
+        self.assertEqual((self.led("CONTROL"), self.led("STEP")), (False, True))
 
-    def test_song_mode_set_elsewhere_lights_scene(self):
+    def test_song_mode_set_elsewhere_lights_control(self):
         transport.loop_mode = 1
         self.refresh()
-        self.assertTrue(self.led("SCENE"))
+        self.assertEqual((self.led("CONTROL"), self.led("STEP")), (True, False))
+        self.assertFalse(self.led("SCENE"))
 
     def test_erase_is_unimplemented(self):
         self.press("ERASE")
@@ -1366,8 +1371,8 @@ class EncoderTest(ScriptTestCase):
         self.turn(-3)
         self.assertEqual(transport.calls, [("globalTransport", midi.FPT_WindowJog, -1)])
 
-    def test_pattern_and_grid_overrides_jog(self):
-        for button, command in (("PATTERN", midi.FPT_PatternJog), ("GRID", midi.FPT_SnapMode)):
+    def test_scene_and_grid_overrides_jog(self):
+        for button, command in (("SCENE", midi.FPT_PatternJog), ("GRID", midi.FPT_SnapMode)):
             with self.subTest(button=button):
                 self.press(button)
                 self.assertEqual(self.controller.state.encoder_mode, button)
@@ -1846,11 +1851,18 @@ class NewModeTest(ScriptTestCase):
         script.OnIdle()
         self.assertEqual(transport.calls, [])  # queue dropped: the menu never opened in time
 
-    def test_new_pattern_starts_a_new_pattern_once(self):
+    def test_new_scene_starts_a_new_pattern_once(self):
         self.press("F4")
-        self.press("PATTERN")
+        self.press("SCENE")
         self.assertEqual(patterns.calls, [("findFirstNextEmptyPat", midi.FFNEP_DontPromptName)])
         self.assertIsNone(self.controller.state.mode)
+
+    def test_new_pattern_is_the_length_override(self):
+        self.press("F4")
+        self.press("PATTERN")
+        self.assertEqual(self.controller.state.encoder_mode, "PATTERN")
+        self.assertEqual(self.controller.state.mode, NEW)
+        self.assertEqual(patterns.calls, [])
 
     def test_controls_without_a_new_function_act_normally_and_keep_new_mode(self):
         self.press("F4")
@@ -1860,7 +1872,7 @@ class NewModeTest(ScriptTestCase):
 
     def test_new_mode_lights(self):
         self.press("F4")
-        for control_id in ("F4", "BROWSE", "PATTERN", "ALL"):
+        for control_id in ("F4", "BROWSE", "SCENE", "ALL"):
             self.assertTrue(self.led(control_id), control_id)
         for control_id in ("F3", "F5", "PLAY", "RESTART"):
             self.assertFalse(self.led(control_id), control_id)
@@ -2936,6 +2948,74 @@ class MixerModeTest(ScriptTestCase):
         self.send(note_on(controls.BY_ID["PAD_1"].number))  # undo
         self.assertIn("undoUp", general.calls)
         self.assertEqual(mixer.routes, set())
+
+
+
+class PatternLengthTest(ScriptTestCase):
+    """Pattern: an encoder override that changes the current pattern's length, a bar per click."""
+
+    def press(self, control_id):
+        return self.send(cc(controls.BY_ID[control_id].number))
+
+    def turn(self, delta):
+        del transport.calls[:]
+        return self.send(cc(controls.BY_ID["ENCODER"].number, delta & 0x7F))
+
+    def test_the_override_lights_and_shows_the_length(self):
+        patterns.current = 3
+        patterns.length = 32
+        self.press("PATTERN")
+        self.assertEqual(self.controller.state.encoder_mode, "PATTERN")
+        self.assertTrue(self.controller.leds._sent["PATTERN"])
+        self.assertEqual(ui.hints, ["Pattern 3: 2 bars"])
+
+    def test_each_click_adds_or_removes_a_bar(self):
+        self.press("PATTERN")
+        self.turn(1)
+        self.assertEqual(patterns.calls, [("setPatternLength", 1, 32)])  # 16 steps: 1 bar -> 2
+        self.assertEqual(ui.hints[-1], "Pattern 1: 2 bars")
+        self.assertEqual(transport.calls, [])  # didn't navigate
+        self.turn(-1)
+        self.assertEqual(patterns.length, 16)
+        self.assertEqual(ui.hints[-1], "Pattern 1: 1 bar")
+
+    def test_lengths_snap_to_whole_bars(self):
+        self.press("PATTERN")
+        patterns.length = 20  # 1.25 bars
+        self.turn(-1)
+        self.assertEqual(patterns.length, 16)
+        patterns.length = 20
+        self.turn(1)
+        self.assertEqual(patterns.length, 32)
+
+    def test_never_below_one_bar(self):
+        self.press("PATTERN")
+        self.turn(-1)
+        self.assertEqual(patterns.length, 16)
+
+    def test_bars_follow_the_time_signature(self):
+        general.ppb = 288  # 3/4: 12 steps a bar
+        patterns.length = 12
+        self.press("PATTERN")
+        self.turn(1)
+        self.assertEqual(patterns.length, 24)
+        self.assertEqual(ui.hints[-1], "Pattern 1: 2 bars")
+
+    def test_fractional_lengths_are_shown(self):
+        patterns.length = 20
+        self.press("PATTERN")
+        self.assertEqual(ui.hints, ["Pattern 1: 1.25 bars"])
+
+    def test_older_fl_only_hints(self):
+        set_length = patterns.setPatternLength
+        del patterns.setPatternLength
+        try:
+            self.press("PATTERN")
+            self.turn(1)
+            self.assertEqual(ui.hints[-1], pattern_controls.NO_LENGTH_API)
+            self.assertEqual(patterns.length, 16)
+        finally:
+            patterns.setPatternLength = set_length
 
 
 if __name__ == "__main__":
