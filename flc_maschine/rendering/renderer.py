@@ -13,8 +13,9 @@ and append it to RULES. Later rules override earlier ones.
 import midi
 
 from .. import bindings, controls, notes
+from ..handlers import sequencer
 from ..handlers.channel_colors import PALETTE
-from ..state import COLOR, DEFAULT_PADS, KEYBOARD, NEW, SHIFT
+from ..state import COLOR, DEFAULT_PADS, KEYBOARD, NEW, SEQUENCER, SHIFT
 from . import colors
 
 # Brightness of the pads and the selected Group button. Full brightness keeps dark channel
@@ -27,6 +28,8 @@ PALETTE_DIM = 70
 # Keyboard pad mode: black-key pads, in the channel's colour. Brighter than DIM_BRIGHTNESS because
 # pads look dimmer than the Group buttons; tune on the hardware.
 BLACK_KEY_BRIGHTNESS = 20
+# Sequencer pad mode: steps that are off, in the channel's colour. Tune on the hardware.
+STEP_OFF_BRIGHTNESS = 20
 
 _PAD_IDS = [control.id for control in controls.PADS]
 
@@ -126,6 +129,47 @@ def _keyboard_pads(state, fl, frame):
             frame[pad_id] = colors.with_brightness(color, LIT_BRIGHTNESS)
 
 
+def _playhead_offset(state, fl):
+    """The step (0-15) of the pads' page that FL is playing, or None. Only while FL plays in pattern
+    mode (in song mode its step position isn't the pattern's), and only inside the pattern, as
+    Novation's script checks."""
+    if not fl.playing or fl.song_mode or not 0 <= fl.step_pos < fl.pattern_steps:
+        return None
+    page, offset = divmod(fl.step_pos, sequencer.STEPS_PER_PAGE)
+    return offset if page == state.step_page else None
+
+
+def _sequencer_pads(state, fl, frame):
+    """Sequencer pad mode. Each pad is a step of the page (sequencer.STEP_FOR_PAD, reading order):
+    the channel's colour when on, STEP_OFF_BRIGHTNESS of it when off, white under the playhead;
+    dark without a channel or a step grid. The Group buttons are the pages: the pads' page bright,
+    the pattern's other pages dim, pages past the pattern's end dark."""
+    if state.pad_mode != SEQUENCER:
+        return
+    color = _channel_hsb(fl)
+    pattern_pages = max(1, -(-fl.pattern_steps // sequencer.STEPS_PER_PAGE))  # rounded up
+    for index, letter in enumerate("ABCDEFGH"):
+        if index == state.step_page:
+            frame["GROUP_" + letter] = colors.with_brightness(color, LIT_BRIGHTNESS)
+        elif index < pattern_pages:
+            frame["GROUP_" + letter] = colors.with_brightness(color, DIM_BRIGHTNESS)
+        else:
+            frame["GROUP_" + letter] = colors.OFF
+
+    if fl.step_channel is None or not fl.grid_assigned:
+        for pad_id in _PAD_IDS:
+            frame[pad_id] = colors.OFF
+        return
+    playhead = _playhead_offset(state, fl)
+    for pad_id, step in zip(_PAD_IDS, sequencer.STEP_FOR_PAD):
+        if step == playhead:
+            frame[pad_id] = colors.WHITE
+        elif fl.steps[step]:
+            frame[pad_id] = colors.with_brightness(color, LIT_BRIGHTNESS)
+        else:
+            frame[pad_id] = colors.with_brightness(color, STEP_OFF_BRIGHTNESS)
+
+
 def _pad_mode(state, fl, frame):
     frame["F15"] = state.fixed_velocity
     frame["NOTE_REPEAT"] = bool(
@@ -211,6 +255,7 @@ RULES = [
     _channel_color,
     _pad_layer,
     _keyboard_pads,
+    _sequencer_pads,
     _focused_window,
     _transport,
     _channel_state,

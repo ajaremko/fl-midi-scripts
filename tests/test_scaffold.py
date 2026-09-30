@@ -131,6 +131,14 @@ class ScriptTestCase(unittest.TestCase):
         plugins.preset_index = {}
         plugins.preset_calls = []
         plugins.preset_pending = False
+        channels.grid = {}
+        channels.grid_calls = []
+        channels.no_grid = set()
+        mixer.step_pos = -1
+        patterns.length = 16
+        ui.visible = set()
+        ui.rects = []
+        general.undo_points = []
         general.ppq = 96
         general.ppb = 384
         self.log = io.StringIO()
@@ -1699,8 +1707,7 @@ class PadModeTest(ScriptTestCase):
             self.turn(1)
             modes.append(self.controller.state.pad_mode)
         self.assertEqual(modes, [KEYBOARD, SEQUENCER, SEQUENCER])
-        self.assertEqual(ui.hints[-3:], ["Pad mode: Keyboard", "Pad mode: Sequencer (not written yet)",
-                                         "Pad mode: Sequencer (not written yet)"])
+        self.assertEqual(ui.hints[-3:], ["Pad mode: Keyboard", "Pad mode: Sequencer", "Pad mode: Sequencer"])
         self.turn(-5)  # one mode per message, however fast
         self.assertEqual(self.controller.state.pad_mode, KEYBOARD)
         self.assertEqual(transport.calls, [])  # no navigation while the override is on
@@ -1711,20 +1718,6 @@ class PadModeTest(ScriptTestCase):
         self.assertEqual(self.controller.state.pad_mode, SEQUENCER)
         self.turn(1)
         self.assertEqual(transport.calls, [("globalTransport", midi.FPT_Down, 1)])
-
-    def check_silent_dark_pads_and_working_groups(self, pad_mode):
-        self.pick(pad_mode)
-        event = self.send(note_on(controls.BY_ID["PAD_1"].number))
-        self.assertTrue(event.handled)  # not played
-        self.assertIn("unimplemented: PAD_1", self.log.getvalue())
-        self.send(note_off(controls.BY_ID["PAD_1"].number))
-        self.assertTrue(all(self.led("PAD_%d" % (i + 1)) == colors.OFF for i in range(16)))
-        self.press("GROUP_B")
-        self.assertEqual(self.controller.state.pad_group, 1)
-        self.assertNotEqual(self.led("GROUP_B"), colors.OFF)
-
-    def test_sequencer_pads_are_silent_and_dark_until_written(self):
-        self.check_silent_dark_pads_and_working_groups(SEQUENCER)
 
     def test_shift_pads_work_in_every_pad_mode(self):
         self.pick(KEYBOARD)
@@ -2302,6 +2295,157 @@ class KeyboardModeTest(ScriptTestCase):
         self.assertTrue(self.send(note_on(controls.BY_ID["PAD_1"].number)).handled)
         self.assertIn("undoUp", general.calls)
         self.assertEqual(self.pad_leds()["PAD_1"], colors.ORANGE)
+
+
+
+class SequencerModeTest(ScriptTestCase):
+    """Sequencer pad mode: the pads toggle the selected channel's steps, a page of 16 at a time."""
+
+    DIM_RED = (0, 127, renderer.STEP_OFF_BRIGHTNESS)
+    select_fpc = FpcModeTest.select_fpc
+
+    def enter(self):
+        self.send(cc(controls.BY_ID["PAD_MODE"].number))
+        self.send(cc(controls.BY_ID["ENCODER"].number, 1))  # Keyboard
+        self.send(cc(controls.BY_ID["ENCODER"].number, 1))  # Sequencer
+        self.send(cc(controls.BY_ID["PAD_MODE"].number, 0))  # override off
+        self.assertEqual(self.controller.state.pad_mode, SEQUENCER)
+
+    def press_pad(self, number):
+        event = self.send(note_on(controls.BY_ID["PAD_%d" % number].number))
+        self.send(note_off(controls.BY_ID["PAD_%d" % number].number))
+        return event
+
+    def press(self, control_id):
+        return self.send(cc(controls.BY_ID[control_id].number))
+
+    def led(self, control_id):
+        return self.controller.leds._sent[control_id]
+
+    def white_pads(self):
+        return [pad_id for pad_id in PAD_IDS if self.led(pad_id) == colors.WHITE]
+
+    def test_pads_toggle_steps_in_reading_order(self):
+        self.enter()
+        self.assertTrue(self.press_pad(13).handled)  # top-left: step 1
+        self.press_pad(4)  # bottom-right: step 16
+        self.press_pad(13)  # off again
+        self.assertEqual(channels.grid_calls, [(0, 0, 1), (0, 15, 1), (0, 0, 0)])
+        self.assertEqual(channels.grid, {0: {15}})
+        self.assertEqual(general.undo_points, [("MK2 step edit", midi.UF_PR)] * 3)
+
+    def test_group_buttons_pick_the_page(self):
+        self.enter()
+        self.press("GROUP_C")
+        self.assertEqual(self.controller.state.step_page, 2)
+        self.assertEqual(self.controller.state.pad_group, 3)  # the note range is untouched
+        self.assertEqual(ui.hints[-1], "Steps 33-48")
+        self.press_pad(13)
+        self.assertEqual(channels.grid_calls, [(0, 32, 1)])  # step 33
+
+    def test_steps_light_in_the_channel_colour(self):
+        channels.grid = {0: {0, 5, 18}}  # steps 1 and 6, and 19 on page B
+        self.enter()
+        self.assertEqual(self.led("PAD_13"), RED)  # step 1
+        self.assertEqual(self.led("PAD_10"), RED)  # step 6
+        lit = [pad_id for pad_id in PAD_IDS if self.led(pad_id) == RED]
+        self.assertEqual(sorted(lit), ["PAD_10", "PAD_13"])
+        self.assertTrue(all(self.led(pad_id) == self.DIM_RED for pad_id in PAD_IDS if pad_id not in lit))
+        self.press("GROUP_B")
+        self.assertEqual([pad_id for pad_id in PAD_IDS if self.led(pad_id) == RED], ["PAD_15"])  # step 19
+
+    def test_edits_made_in_fl_show_after_a_refresh(self):
+        self.enter()
+        channels.grid = {0: {3}}  # step 4, e.g. clicked with the mouse
+        self.refresh(1024)  # HW_Dirty_Patterns
+        self.assertEqual(self.led("PAD_16"), RED)
+
+    def test_no_channel_or_no_step_grid_is_dark_and_hints(self):
+        self.enter()
+        channels.selected = -1
+        self.refresh()
+        self.assertTrue(all(self.led(pad_id) == colors.OFF for pad_id in PAD_IDS))
+        self.press_pad(1)
+        self.assertEqual(ui.hints[-1], "No channel selected")
+        channels.selected = 0
+        channels.no_grid = {0}
+        self.refresh()
+        self.assertTrue(all(self.led(pad_id) == colors.OFF for pad_id in PAD_IDS))
+        self.press_pad(1)
+        self.assertEqual(ui.hints[-1], "This channel has no step sequencer")
+        self.assertEqual(channels.grid_calls, [])
+
+    def test_the_playhead_is_white_and_moves_on_idle(self):
+        self.enter()
+        transport.playing = True
+        mixer.step_pos = 5  # step 6: pad 10
+        self.refresh()
+        self.assertEqual(self.white_pads(), ["PAD_10"])
+        mixer.step_pos = 6  # no event or refresh: OnIdle notices the playhead moved
+        script.OnIdle()
+        self.assertEqual(self.white_pads(), ["PAD_11"])
+        self.assertEqual(self.led("PAD_10"), self.DIM_RED)
+
+    def test_the_playhead_hides_when_stopped_in_song_mode_off_the_page_or_past_the_end(self):
+        self.enter()
+        cases = [
+            ("stopped", False, 0, 5, 16, "GROUP_A"),
+            ("song mode", True, 1, 5, 16, "GROUP_A"),
+            ("another page", True, 0, 20, 32, "GROUP_A"),
+            ("past the pattern's end", True, 0, 20, 16, "GROUP_B"),
+        ]
+        for name, playing, loop_mode, step_pos, length, group in cases:
+            with self.subTest(name):
+                transport.playing, transport.loop_mode = playing, loop_mode
+                mixer.step_pos, patterns.length = step_pos, length
+                self.press(group)
+                self.assertEqual(self.white_pads(), [])
+
+    def test_group_buttons_show_the_pattern_length(self):
+        patterns.length = 32  # two pages
+        self.enter()
+        dim = (0, 127, renderer.DIM_BRIGHTNESS)
+        self.assertEqual([self.led("GROUP_" + g) for g in "ABC"], [RED, dim, colors.OFF])
+        self.press("GROUP_C")  # past the end, but still the pads' page
+        self.assertEqual([self.led("GROUP_" + g) for g in "ABCD"], [dim, dim, RED, colors.OFF])
+
+    def test_red_box_on_entering_on_group_presses_and_on_channel_changes(self):
+        ui.visible = {midi.widChannelRack}
+        self.enter()
+        box = (0, 0, 16, 1, 2000, midi.CR_ScrollToView)
+        self.assertEqual(ui.rects, [box])
+        self.press("GROUP_B")
+        self.assertEqual(ui.rects[-1], (16, 0, 16, 1, 2000, midi.CR_ScrollToView))
+        self.press("GROUP_B")  # the same page again: shown again
+        self.assertEqual(len(ui.rects), 3)
+        self.refresh()  # nothing changed: no box
+        self.assertEqual(len(ui.rects), 3)
+        channels.selected = 2
+        self.refresh()
+        self.assertEqual(ui.rects[-1], (16, 2, 16, 1, 2000, midi.CR_ScrollToView))
+
+    def test_no_red_box_while_the_channel_rack_is_hidden(self):
+        self.enter()
+        self.press("GROUP_B")
+        self.assertEqual(ui.rects, [])
+
+    def test_hint_names_the_mode(self):
+        self.enter()
+        self.assertIn("Pad mode: Sequencer", ui.hints)
+
+    def test_shift_pads_still_override(self):
+        self.enter()
+        self.press("F3")
+        self.send(note_on(controls.BY_ID["PAD_1"].number))  # undo
+        self.assertIn("undoUp", general.calls)
+        self.assertEqual(channels.grid_calls, [])
+
+    def test_an_fpc_channel_is_sequenced_without_reading_its_pads(self):
+        self.enter()
+        self.select_fpc()
+        self.assertIsNone(self.controller.fl.fpc_banks)
+        self.press_pad(13)
+        self.assertEqual(channels.grid_calls, [(FPC_CHANNEL, 0, 1)])
 
 
 if __name__ == "__main__":

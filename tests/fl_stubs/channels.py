@@ -124,3 +124,25 @@ def getChannelType(index, useGlobalIndex=False):
 
 def setChannelColor(index, color, useGlobalIndex=False):
     colors[index] = color
+
+
+grid = {}  # channel index -> set of steps that are on (getGridBit)
+grid_calls = []  # (index, position, value) passed to setGridBit
+no_grid = set()  # channel indexes without a step grid (isGridBitAssigned 0)
+
+
+def getGridBit(index, position, useGlobalIndex=False):
+    return 1 if position in grid.get(index, ()) else 0
+
+
+def setGridBit(index, position, value, useGlobalIndex=False):
+    grid_calls.append((index, position, value))
+    steps = grid.setdefault(index, set())
+    if value:
+        steps.add(position)
+    else:
+        steps.discard(position)
+
+
+def isGridBitAssigned(index, useGlobalIndex=False):
+    return 0 if index in no_grid else 1

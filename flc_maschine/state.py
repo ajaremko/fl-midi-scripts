@@ -50,6 +50,11 @@ class ControllerState:
         # The pad mode (DEFAULT_PADS, KEYBOARD or SEQUENCER), chosen with the encoder while the Pad
         # Mode override is on. Its layer sits between the global mode's and base.
         self.pad_mode = DEFAULT_PADS
+        # Sequencer pad mode (handlers/sequencer.py): the page of 16 steps the pads show, chosen with
+        # the Group buttons (0 = Group A, steps 1-16), kept apart from pad_group. And the
+        # (channel, page) the Channel Rack's red box last showed, or None to show it again.
+        self.step_page = 0
+        self.step_box = None
         # Note Repeat mode (bridge mode only), cycled by its button: note_repeat.OFF (0), ON
         # (straight divisions) or TRIPLETS. The MK2 bridge repeats held pads while it isn't OFF.
         self.note_repeat = 0

@@ -42,3 +42,10 @@ def processRECEvent(eventId, value, flags):
     rec_events.append((eventId, value, flags))
     rec_values[eventId] = value
     return value
+
+
+undo_points = []  # (name, flags) passed to saveUndo
+
+
+def saveUndo(undoName, flags, updateHistory=1):
+    undo_points.append((undoName, flags))

@@ -6,10 +6,13 @@ here leaves the renderer a pure function that can be tested without FL Studio.
 import channels
 import midi
 import mixer
+import patterns
 import transport
 import ui
 
 from .. import fpc
+from ..handlers.sequencer import STEPS_PER_PAGE
+from ..state import DEFAULT_PADS, SEQUENCER
 
 # Windows whose focus the renderer may show, checked in this order.
 WINDOWS = (midi.widMixer, midi.widChannelRack, midi.widPlaylist, midi.widPianoRoll, midi.widBrowser)
@@ -17,11 +20,13 @@ WINDOWS = (midi.widMixer, midi.widChannelRack, midi.widPlaylist, midi.widPianoRo
 
 class FlSnapshot:
     __slots__ = ("focused_window", "playing", "recording", "song_mode", "channel_color", "channel_solo",
-                 "channel_muted", "fpc_channel", "fpc_banks", "tempo")
+                 "channel_muted", "fpc_channel", "fpc_banks", "tempo", "step_channel", "grid_assigned",
+                 "steps", "step_pos", "pattern_steps")
 
     def __init__(self, focused_window=None, playing=False, recording=False, song_mode=False,
                  channel_color=None, channel_solo=False, channel_muted=False, fpc_channel=None,
-                 fpc_banks=None, tempo=120.0):
+                 fpc_banks=None, tempo=120.0, step_channel=None, grid_assigned=False,
+                 steps=(False,) * STEPS_PER_PAGE, step_pos=-1, pattern_steps=0):
         self.focused_window = focused_window  # one of WINDOWS, or None
         self.playing = playing
         self.recording = recording
@@ -32,17 +37,27 @@ class FlSnapshot:
         self.fpc_channel = fpc_channel  # selected channel if it is an FPC, else None
         self.fpc_banks = fpc_banks  # fpc.read_banks() of that FPC, else None
         self.tempo = tempo  # BPM, for the MK2 bridge's Note Repeat while FL is stopped (bridge_link.py)
+        # Sequencer pad mode only (read when it's on): the selected channel or None, whether it has
+        # a step grid, its 16 steps on the page the pads show (by step, not pad), FL's playhead
+        # step (-1 when stopped) and the current pattern's length in steps.
+        self.step_channel = step_channel
+        self.grid_assigned = grid_assigned
+        self.steps = steps
+        self.step_pos = step_pos
+        self.pattern_steps = pattern_steps
 
     @classmethod
-    def read(cls):
+    def read(cls, pad_mode=DEFAULT_PADS, step_page=0):
+        """Read FL's state. FPC's pads are only read in Default pad mode, the only one that uses
+        them, and the step sequencer only in Sequencer mode: its playhead makes a render per step."""
         focused = None
         for window in WINDOWS:
             if ui.getFocused(window):
                 focused = window
                 break
         channel = channels.selectedChannel(1)  # -1 when no channel is selected
-        fpc_channel = fpc.selected_fpc_channel()
-        return cls(
+        fpc_channel = fpc.selected_fpc_channel() if pad_mode == DEFAULT_PADS else None
+        snapshot = cls(
             focused_window=focused,
             playing=bool(transport.isPlaying()),
             recording=bool(transport.isRecording()),
@@ -54,6 +69,20 @@ class FlSnapshot:
             fpc_banks=fpc.read_banks(fpc_channel) if fpc_channel is not None else None,
             tempo=_bpm(mixer.getCurrentTempo(1)),
         )
+        if pad_mode == SEQUENCER:
+            snapshot._read_steps(channel, step_page)
+        return snapshot
+
+    def _read_steps(self, channel, step_page):
+        self.step_pos = mixer.getSongStepPos()
+        self.pattern_steps = patterns.getPatternLength(patterns.patternNumber())  # steps, not beats
+        if channel < 0:
+            return
+        self.step_channel = channel
+        self.grid_assigned = bool(channels.isGridBitAssigned(channel))
+        if self.grid_assigned:
+            first = step_page * STEPS_PER_PAGE
+            self.steps = tuple(bool(channels.getGridBit(channel, first + offset)) for offset in range(STEPS_PER_PAGE))
 
 
 def _bpm(value):

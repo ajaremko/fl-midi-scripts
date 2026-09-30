@@ -269,18 +269,41 @@ These are all of the controls present on the hardware with their location, label
 
 Pad Mode turns on an encoder override: while it's lit, turning the encoder picks what the pads do, and the hint bar names the mode ("Pad mode: Keyboard"). Turning stops at either end. The pad mode stays when the override is turned off (press Pad Mode again, or enter Shift, New or Color mode).
 
-| Pad mode | The pads | Status |
+| Pad mode | The pads | Group buttons |
 |---|---|---|
-| Default | play the selected group's notes in the channel's colour; the Group buttons pick the note range; FPC banks and pad colours on an FPC channel | the startup mode |
-| Keyboard | play the selected group's notes chromatically on every channel, FPC included; lit as piano keys: C white, the other white keys in the channel's colour, black keys in a dim channel colour | written |
-| Sequencer | control the Channel Rack step sequencer | not written yet |
+| Default (the startup mode) | play the selected group's notes in the channel's colour; FPC banks and pad colours on an FPC channel | pick the note range |
+| Keyboard | play the selected group's notes chromatically on every channel, FPC included; lit as piano keys: C white, the other white keys in the channel's colour, black keys in a dim channel colour | pick the note range |
+| Sequencer | turn the selected channel's steps on and off, 16 at a time (see Sequencer Mode) | pick the page of steps: A is steps 1–16 … H is 113–128 |
 
 - **Other modes still work:** Shift, New and Color mode take over the pads as usual in every pad mode (e.g. Shift + Pad 1 is undo in Keyboard mode).
-- **Pitfall:** until it's written, Sequencer's pads are silent and dark; the hint says "(not written yet)". Turn back to Default or Keyboard to play.
 - **Pitfall:** on an FPC channel, Keyboard mode plays FPC's chromatic notes (Group D pad 1 is note 48), not its pad layout, and doesn't jump to Group E. Use Default for FPC's pads; turning back to Default on an FPC jumps to Group E.
 - **Pitfall:** on a very dark channel colour the black keys can be hard to see. Their brightness is `BLACK_KEY_BRIGHTNESS` in [renderer.py](flc_maschine/rendering/renderer.py).
-- **Pitfall:** while Note Repeat is on, the encoder only changes its rate. Turn Note Repeat off to change the pad mode. With the bridge, pads are repeated in Default and Keyboard.
+- **Pitfall:** while Note Repeat is on, the encoder only changes its rate. Turn Note Repeat off to change the pad mode. With the bridge, pads are repeated in Default and Keyboard (Sequencer's pads play no notes).
 - **Pitfall:** Pad Mode no longer toggles fixed velocity. That's F15 now, on button page 2.
+
+### Sequencer Mode
+
+The pads edit the selected Channel Rack channel's step sequencer, in the current pattern. Each pad is one step; press it to turn the step on or off.
+
+- **Step order:** reading order, from the top-left pad. Step 1 is pad 13 and step 16 is pad 4:
+
+  ```text
+   1  2  3  4     (pads 13-16)
+   5  6  7  8     (pads 9-12)
+   9 10 11 12     (pads 5-8)
+  13 14 15 16     (pads 1-4)
+  ```
+
+- **Lights:** a step that's on is the channel's colour, and a step that's off is the channel's colour dimmed. While FL plays the pattern, the step being played is white.
+- **Pages:** the Group buttons pick which 16 steps the pads show: Group A is steps 1–16, B is 17–32, … H is 113–128. The pads' page is bright, the pattern's other pages are dim, and pages past the pattern's end are dark (they still work). The page is kept separately from the note range Default and Keyboard use.
+- **The red box:** for 2 seconds FL draws a red box around the pads' 16 steps on the Channel Rack, scrolling it into view. It appears when you press a Group button, enter Sequencer mode, or select another channel.
+- **Undo:** each step edit saves an undo point, so Shift + Pad 1 undoes it.
+- **Pitfall:** the step order isn't the pad numbering: step 1 is pad 13, top-left.
+- **Pitfall:** the playhead only shows in pattern mode, and only while it's on the pads' page. In song mode FL's step position isn't the pattern's, so there's none.
+- **Pitfall:** the red box only draws while the Channel Rack is visible.
+- **Pitfall:** without a selected channel, or on a channel with no step sequencer, the pads are dark and a press only shows a hint.
+- **Pitfall:** turning on a step past the pattern's end should lengthen the pattern (not yet checked in FL).
+- **Pitfall:** on a very dark channel colour, steps that are off can be hard to see. Their brightness is `STEP_OFF_BRIGHTNESS` in [renderer.py](flc_maschine/rendering/renderer.py).
 
 ### Shift, New and Color Modes
 

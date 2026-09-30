@@ -40,3 +40,15 @@ def setHintMsg(message):
 
 def openEventEditor(eventId, mode, newWindow=0):
     event_editors.append((eventId, mode))
+
+
+visible = set()  # windows getVisible reports, besides the focused one
+rects = []  # (left, top, width, height, duration, flags) passed to crDisplayRect
+
+
+def getVisible(window):
+    return 1 if window in visible or window == focused else 0
+
+
+def crDisplayRect(left, top, right, bottom, duration, flags=0):
+    rects.append((left, top, right, bottom, duration, flags))

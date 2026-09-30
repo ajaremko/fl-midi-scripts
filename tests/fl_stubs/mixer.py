@@ -90,3 +90,10 @@ active_effect = None  # (track, slot) of the focused effect editor, or None
 
 def getActiveEffectIndex():
     return active_effect
+
+
+step_pos = -1  # getSongStepPos(): the step FL is playing, -1 when stopped
+
+
+def getSongStepPos():
+    return step_pos

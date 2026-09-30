@@ -3,7 +3,7 @@ import general
 import ui
 
 from . import bridge_link, diagnostics, dispatcher, events, feedback, log
-from .handlers import pads, presets, ui_commands
+from .handlers import pads, presets, sequencer, ui_commands
 from .rendering import renderer
 from .rendering.fl_state import FlSnapshot
 from .rendering.output import LedWriter
@@ -114,6 +114,10 @@ class MaschineMk2:
                 self.dirty = True
         ui_commands.run_menu_commands(self.state)
         presets.show_preset_name(self.state)
+        # Sequencer mode's playhead: render when FL's step position moves on (no refresh says so).
+        if not self.dirty and sequencer.watching_playhead(self.state, self.fl) and _safe_to_edit():
+            if sequencer.playhead_moved(self.fl):
+                self.dirty = True
         self._render_if_due()
         diagnostics.tick(self)
 
@@ -141,9 +145,10 @@ class MaschineMk2:
     def render(self):
         """Read FL's state and update every LED. Only called from OnInit and OnIdle."""
         began = diagnostics.clock()
-        fl = FlSnapshot.read()
+        fl = FlSnapshot.read(self.state.pad_mode, self.state.step_page)
         self.fl = fl
         pads.follow_fpc_selection(self.state, fl)
+        sequencer.follow(self.state, fl)
         self.leds.write(renderer.render(self.state, fl))
         if self.link:
             self.link.write(self.state, fl)

@@ -28,6 +28,7 @@ from .handlers import (
     pads,
     pattern_controls,
     presets,
+    sequencer,
     transport_controls,
     ui_commands,
     windows,
@@ -146,10 +147,13 @@ _color = {"PAD_%d" % (_i + 1): channel_colors.pick(_i) for _i in range(16)}
 
 # Pad modes (handlers/pad_modes.py): searched between the global mode's layer and base, so each
 # replaces only what it binds. Default binds nothing: the base layer's pads are Default. Keyboard
-# plays the chromatic layout on every channel (no FPC banks).
+# plays the chromatic layout on every channel (no FPC banks). Sequencer's pads toggle steps of the
+# selected channel, and its Group buttons pick the page of steps.
 _default_pads = {}
 _keyboard_pads = {"PAD_%d" % (_i + 1): pads.play_keyboard for _i in range(16)}
-_sequencer_pads = {"PAD_%d" % (_i + 1): unimplemented("sequencer mode") for _i in range(16)}
+_sequencer_pads = {"PAD_%d" % (_i + 1): sequencer.toggle_step(_i) for _i in range(16)}
+for _index, _letter in enumerate("ABCDEFGH"):
+    _sequencer_pads["GROUP_" + _letter] = sequencer.select_page(_index)
 
 LAYERS = {
     BASE: _base,

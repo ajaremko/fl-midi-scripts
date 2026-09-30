@@ -23,3 +23,10 @@ def jumpToPattern(index):
 
 def clonePattern(index=-1, destIndex=-1):
     calls.append(("clonePattern",))
+
+
+length = 16  # getPatternLength() of every pattern, in steps
+
+
+def getPatternLength(index):
+    return length
