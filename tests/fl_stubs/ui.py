@@ -64,3 +64,10 @@ scrolls = []  # (window, value) passed to scrollWindow
 
 def scrollWindow(index, value, directionFlag=0):
     scrolls.append((index, value))
+
+audio_editors = []  # (reuse, filename, index, preset, presetGUID) passed to launchAudioEditor
+
+
+def launchAudioEditor(reuse, filename, index, preset, presetGUID):
+    audio_editors.append((reuse, filename, index, preset, presetGUID))
+    return 1

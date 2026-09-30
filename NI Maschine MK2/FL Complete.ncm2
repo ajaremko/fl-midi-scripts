@@ -646,7 +646,7 @@
           <bipolar>off</bipolar>
         </knob>
         <knob version="1" id="Knob3">
-          <name>Pitch</name>
+          <name>Mod X</name>
           <controller mode="comp">16</controller>
           <channel>0</channel>
           <min>0</min>
@@ -657,7 +657,7 @@
           <bipolar>off</bipolar>
         </knob>
         <knob version="1" id="Knob4">
-          <name>Range</name>
+          <name>Mod Y</name>
           <controller mode="comp">17</controller>
           <channel>0</channel>
           <min>0</min>

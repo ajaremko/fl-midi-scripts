@@ -96,6 +96,8 @@ class ScriptTestCase(unittest.TestCase):
         ui.in_popup_menu = False
         ui.hints = []
         ui.event_editors = []
+        ui.audio_editors = []
+        mixer.focused_editors = []
         channels.shown_forms = []
         channels.quantized = []
         channels.pitch = {}
@@ -905,8 +907,8 @@ class ChannelKnobsTest(ScriptTestCase):
     def test_each_knob_steps_its_parameter_on_the_selected_channel(self):
         channels.selected = 2
         base = channels.getRecEventId(2)
-        for knob, offset in (("E1", midi.REC_Chan_Vol), ("E2", midi.REC_Chan_Pan), ("E3", midi.REC_Chan_Pitch),
-                             ("E5", midi.REC_Chan_GateTime),
+        for knob, offset in (("E1", midi.REC_Chan_Vol), ("E2", midi.REC_Chan_Pan), ("E3", midi.REC_Chan_FCut),
+                             ("E4", midi.REC_Chan_FRes), ("E5", midi.REC_Chan_GateTime),
                              ("E6", midi.REC_Chan_TimeOfs), ("E7", midi.REC_Chan_SwingMix)):
             with self.subTest(knob=knob):
                 general.rec_events = []
@@ -914,19 +916,6 @@ class ChannelKnobsTest(ScriptTestCase):
                 self.turn(knob, -1)
                 self.assertEqual(general.rec_events, [(base + offset, 3, self.SET), (base + offset, 2, self.SET)])
                 self.assertEqual(channels.inc_calls[-1], (base + offset, -1, midi.EKRes))
-
-    def test_range_knob_sets_the_pitch_range_a_semitone_per_step(self):
-        channels.selected = 3
-        self.turn("E4", +5)  # one semitone per message, however fast
-        self.assertEqual(channels.pitch_range[3], 3)  # from FL's default 2
-        self.assertEqual(ui.hints[-1], "Pitch range: +/-3 semitones")
-        for _ in range(60):
-            self.turn("E4", +1)
-        self.assertEqual(channels.pitch_range[3], pads.MAX_PITCH_RANGE)
-        for _ in range(60):
-            self.turn("E4", -1)
-        self.assertEqual(channels.pitch_range[3], 1)
-        self.assertEqual(general.rec_events, [])  # not a REC event
 
     def test_mixer_knob_routes_one_track_per_step_within_range(self):
         channels.selected = 1
@@ -2927,6 +2916,42 @@ class MixerModeTest(ScriptTestCase):
         self.press("GROUP_A")
         self.assertEqual((len(ui.mi_rects), len(ui.scrolls)), (3, 6))
 
+    def knob(self, number, delta):
+        return self.send(cc(controls.BY_ID["E%d" % number].number, delta & 0x7F))
+
+    def track_event(self, track, offset):
+        return mixer.getTrackPluginId(track, 0) + offset
+
+    def test_knob_page_2_controls_the_focused_tracks_volume_and_pan(self):
+        self.enter()
+        cases = [(9, 0, midi.REC_Mixer_Vol), (12, 3, midi.REC_Mixer_Vol),
+                 (13, 0, midi.REC_Mixer_Pan), (16, 3, midi.REC_Mixer_Pan)]
+        for number, track, offset in cases:
+            with self.subTest(knob=number):
+                general.rec_events = []
+                self.assertTrue(self.knob(number, 2).handled)
+                event_id = self.track_event(track, offset)
+                self.assertEqual(general.rec_events, [(event_id, general.rec_values[event_id], channel_knobs.SET_FLAGS)])
+                self.assertEqual(channels.inc_calls[-1], (event_id, 2, midi.EKRes))
+
+    def test_the_knobs_follow_the_focus(self):
+        self.enter()
+        self.turn(1)  # the focus now starts at track 1
+        self.knob(9, -1)
+        self.assertEqual(general.rec_events[-1][0], self.track_event(1, midi.REC_Mixer_Vol))
+
+    def test_knobs_past_the_last_track_do_nothing(self):
+        mixer.track_count = 4  # Master, inserts 1-2 and "Current"
+        self.enter()
+        self.knob(12, 1)
+        self.knob(16, 1)
+        self.assertEqual(general.rec_events, [])
+
+    def test_outside_mixer_mode_the_knobs_are_macros(self):
+        self.knob(9, 1)  # Pads mode
+        self.assertEqual(general.rec_events, [])
+        self.assertIn("macros", ui.hints[-1])  # the macro handler answered
+
     def test_columns_past_the_last_track_are_dark_and_do_nothing(self):
         mixer.track_count = 4  # Master, inserts 1-2 and "Current"
         self.enter()
@@ -3016,6 +3041,95 @@ class PatternLengthTest(ScriptTestCase):
             self.assertEqual(patterns.length, 16)
         finally:
             patterns.setPatternLength = set_length
+
+
+
+class EditorsTest(ScriptTestCase):
+    """Sampling (Edison with the Audio Logger preset) and Shift + Sampling (Edit: the event editor)."""
+
+    def press(self, control_id, value=127):
+        return self.send(cc(controls.BY_ID[control_id].number, value))
+
+    def shift_sampling(self):
+        self.press("F3")  # shift on
+        self.press("SAMPLING")
+        self.press("F3")  # and off
+
+    def test_sampling_opens_edison_on_the_selected_channels_track(self):
+        channels.selected = 2
+        channels.fx_tracks = {2: 5}
+        self.assertTrue(self.press("SAMPLING").handled)
+        self.assertEqual(ui.audio_editors, [(False, "", 5, "AudioLoggerTrack.fst", "")])
+        self.assertEqual(ui.hints[-1], "Edison (Audio Logger) on Insert 5")
+
+    def test_an_edison_already_on_the_track_is_brought_forward(self):
+        channels.selected = 2
+        channels.fx_tracks = {2: 5}
+        mixer.track_effects = {(5, 0), (5, 3)}
+        plugins.effects = {(5, 0): "Fruity Reeverb 2", (5, 3): "Edison"}
+        self.press("SAMPLING")
+        self.assertEqual(mixer.focused_editors, [(5, 3)])
+        self.assertEqual(ui.audio_editors, [])  # no second Edison
+        self.assertEqual(ui.hints[-1], "Edison on Insert 5")
+
+    def test_an_edison_on_another_track_does_not_count(self):
+        channels.selected = 2
+        channels.fx_tracks = {2: 5}
+        mixer.track_effects = {(4, 0)}
+        plugins.effects = {(4, 0): "Edison"}
+        self.press("SAMPLING")
+        self.assertEqual(mixer.focused_editors, [])
+        self.assertEqual(ui.audio_editors[-1][2], 5)
+
+    def test_with_no_channel_selected_it_uses_the_selected_mixer_track(self):
+        channels.selected = -1
+        mixer.track_number = 3
+        self.press("SAMPLING")
+        self.assertEqual(ui.audio_editors[-1][2], 3)
+
+    def test_in_mixer_mode_it_uses_the_selected_mixer_track(self):
+        channels.fx_tracks = {0: 5}
+        self.press("PAD_MODE")
+        for _ in range(3):
+            self.send(cc(controls.BY_ID["ENCODER"].number, 1))  # Keyboard, Sequencer, Mixer
+        self.press("PAD_MODE", 0)
+        mixer.track_number = 2
+        self.press("SAMPLING", 0)  # a Toggle button in the template: every message is a press
+        self.assertEqual(ui.audio_editors[-1][2], 2)
+
+    def test_edit_opens_the_selected_channels_volume_before_any_knob(self):
+        channels.selected = 1
+        self.shift_sampling()
+        self.assertEqual(ui.event_editors, [(channels.getRecEventId(1) + midi.REC_Chan_Vol, midi.EE_EE)])
+
+    def test_edit_follows_the_last_knob_turned(self):
+        channels.selected = 1
+        self.send(cc(controls.BY_ID["E2"].number, 1))  # Pan
+        self.send(cc(controls.BY_ID["E8"].number, 1))  # mixer track routing: not remembered
+        self.shift_sampling()
+        self.assertEqual(ui.event_editors[-1], (channels.getRecEventId(1) + midi.REC_Chan_Pan, midi.EE_EE))
+        self.send(cc(controls.BY_ID["E4"].number, 1))  # Mod Y
+        self.shift_sampling()
+        self.assertEqual(ui.event_editors[-1], (channels.getRecEventId(1) + midi.REC_Chan_FRes, midi.EE_EE))
+
+    def test_edit_follows_mixer_mode_knobs(self):
+        self.press("PAD_MODE")
+        for _ in range(3):
+            self.send(cc(controls.BY_ID["ENCODER"].number, 1))
+        self.press("PAD_MODE", 0)
+        self.send(cc(controls.BY_ID["E13"].number, 1))  # Master's pan
+        self.shift_sampling()
+        self.assertEqual(ui.event_editors[-1], (mixer.getTrackPluginId(0, 0) + midi.REC_Mixer_Pan, midi.EE_EE))
+
+    def test_edit_with_nothing_to_open_only_hints(self):
+        channels.selected = -1
+        self.shift_sampling()
+        self.assertEqual(ui.event_editors, [])
+        self.assertIn("No channel selected", ui.hints)
+
+    def test_shift_lights_sampling(self):
+        self.press("F3")
+        self.assertTrue(self.controller.leds._sent["SAMPLING"])
 
 
 if __name__ == "__main__":

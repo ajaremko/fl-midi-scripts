@@ -65,6 +65,8 @@ widBrowser = 4
 # Channel REC event offsets and flags (general.processRECEvent)
 REC_Chan_Vol = 0
 REC_Chan_Pan = 1
+REC_Chan_FCut = 2  # Mod X
+REC_Chan_FRes = 3  # Mod Y
 REC_Chan_Pitch = 4
 REC_Chan_FXTrack = 8
 REC_Chan_GateTime = 9
@@ -89,3 +91,6 @@ curfxScrollToMakeVisible = 1  # mixer.setTrackNumber flag
 UF_PR = 2  # general.saveUndo flag: piano roll / step edits
 CR_ScrollToView = 2  # ui.crDisplayRect flag
 CR_HighlightChannelName = 32  # ui.crDisplayRect flag
+REC_Mixer_Vol = 0  # mixer track REC event offsets (from mixer.getTrackPluginId(track, 0))
+REC_Mixer_Pan = 1
+EE_EE = 0  # ui.openEventEditor mode: the event editor

@@ -22,6 +22,7 @@ from .handlers import (
     mixer_pads,
     mixer_tracks,
     edit,
+    editors,
     encoder,
     groups,
     modes,
@@ -44,7 +45,7 @@ _base = {
     "CONTROL": transport_controls.toggle_song_mode,
     "STEP": transport_controls.toggle_song_mode,
     "BROWSE": windows.toggle(midi.widBrowser),
-    "SAMPLING": unimplemented(),
+    "SAMPLING": editors.sample,  # Edison (Audio Logger) on the selected channel's mixer track
     "ALL": unimplemented(),
     "AUTO": unimplemented(),
     # Function buttons, page 1
@@ -95,9 +96,8 @@ _base = {
 }
 
 # E1-E8: the selected channel's settings. E9-E16 (knob page 2): macros for the focused plugin.
-for _i in (1, 2, 3, 5, 6, 7):
+for _i in range(1, 8):
     _base["E%d" % _i] = channel_knobs.turn
-_base["E4"] = channel_knobs.pitch_range
 _base["E8"] = channel_knobs.mixer_track
 for _i in range(9, 17):
     _base["E%d" % _i] = macro_knobs.turn
@@ -111,6 +111,7 @@ for _i in range(1, 17):
 
 _shift = {
     "BROWSE": ui_commands.send(midi.FPT_F8),  # plugin picker
+    "SAMPLING": editors.edit_last,  # Edit: the event editor for the last knob's parameter
     "ALL": ui_commands.send(midi.FPT_Save),  # Save
     "NOTE_REPEAT": ui_commands.send(midi.FPT_TapTempo),  # Tap
     "RESTART": ui_commands.send(midi.FPT_LoopRecord),  # Loop: toggle loop recording
@@ -166,6 +167,10 @@ for _index, _letter in enumerate("ABCDEFGH"):
 _mixer_pads = {"PAD_%d" % (_i + 1): mixer_pads.pad(_i) for _i in range(16)}
 for _index, _letter in enumerate("ABCDEFGH"):
     _mixer_pads["GROUP_" + _letter] = mixer_pads.jump(_index)
+# Knob page 2 in Mixer mode: the focused tracks' volumes (E9-E12) and pans (E13-E16), not macros.
+for _column in range(4):
+    _mixer_pads["E%d" % (9 + _column)] = mixer_pads.knob(_column, midi.REC_Mixer_Vol)
+    _mixer_pads["E%d" % (13 + _column)] = mixer_pads.knob(_column, midi.REC_Mixer_Pan)
 
 LAYERS = {
     BASE: _base,

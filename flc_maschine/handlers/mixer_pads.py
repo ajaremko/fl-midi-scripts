@@ -14,17 +14,22 @@ focus's first track on the left:
 The encoder scrolls the focus one track at a time while the Mixer is focused (encoder.turn calls
 scroll), through every track. The Group buttons jump by blocks of 4 used tracks
 (mixer_tracks.used_tracks): Group A to the 1st used track, B to the 5th ... H to the 29th, since
-8 groups of 4 can't cover all 125 inserts. When the focus changes, a red box on the Mixer
+8 groups of 4 can't cover all 125 inserts. Knob page 2 follows the focus too (knob): E9-E12 are the
+4 tracks' volumes and E13-E16 their pans, left to right like the columns. When the focus changes, a red box on the Mixer
 (ui.miDisplayRect) outlines it and the Mixer scrolls to it (follow). renderer._mixer_pads lights
 the pads.
 """
 
+import channels
+import general
 import midi
 import mixer
 import ui
 
+from .. import events
 from ..state import MIXER
 from . import mixer_tracks
+from .channel_knobs import SET_FLAGS
 from .common import on_press
 from .sequencer import FOCUS_BOX_MS
 
@@ -127,6 +132,25 @@ def _route(state, track):
     mixer.afterRoutingChanged()
     note = " (%d refused)" % refused if refused else ""
     ui.setHintMsg("%s -> %s: %s%s" % (who, _name(track), "on" if on else "off", note))
+
+
+def knob(column, rec_offset):
+    """E9-E16 in Mixer mode: step a focused track's volume (REC_Mixer_Vol) or pan (REC_Mixer_Pan).
+    Mixer track parameters are REC events from the track's getTrackPluginId(track, 0), stepped and
+    written as E1-E7 do channel settings, so FL moves its own control and shows the hint."""
+
+    def handler(controller, ev):
+        if ev.kind != events.TURN:
+            return
+        track = controller.state.mixer_first + column
+        if track >= track_count():
+            return  # no track in this column
+        event_id = mixer.getTrackPluginId(track, 0) + rec_offset
+        value = channels.incEventValue(event_id, ev.delta, midi.EKRes)
+        general.processRECEvent(event_id, value, SET_FLAGS)
+        controller.state.last_event_id = event_id  # for Shift + Sampling (Edit)
+
+    return handler
 
 
 def jump(group):

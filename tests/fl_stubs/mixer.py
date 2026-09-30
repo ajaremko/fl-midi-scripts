@@ -154,3 +154,13 @@ def getRouteSendActive(index, destIndex):
 def afterRoutingChanged():
     global routing_changes
     routing_changes += 1
+
+
+def getTrackPluginId(index, plugIndex):
+    return (index + 1) << 22 | plugIndex << 16  # a distinct REC event base per track and slot
+
+focused_editors = []  # (track, slot) passed to focusEditor
+
+
+def focusEditor(index, plugIndex):
+    focused_editors.append((index, plugIndex))

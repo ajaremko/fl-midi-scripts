@@ -92,6 +92,9 @@ class ControllerState:
         # After F13/F14: (channel, old preset name, OnIdle ticks left) until the new name is shown.
         # See handlers/presets.show_preset_name.
         self.preset_hint = None
+        # The REC event the last MK2 knob turn wrote (E1-E7 channel settings, Mixer mode's E9-E16),
+        # or None: Shift + Sampling opens it in the event editor (handlers/editors.py).
+        self.last_event_id = None
 
     def active_layers(self):
         """Binding layers to search, highest priority first: the global mode's (so Shift pads work

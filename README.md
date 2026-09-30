@@ -21,7 +21,7 @@ This allows the other two controllers to focus on doing what they do best - bein
 
 ### Macros (E9–E16)
 
-Knob page 2 is labelled "Macro 1" … "Macro 8". What each knob controls depends on the plugin the macros act on, and FL's hint bar names the parameter and shows its value as you turn. Mappings live in [macros.py](flc_maschine/macros.py) and are our own choices.
+Knob page 2 is labelled "Macro 1" … "Macro 8". In Mixer pad mode they control the focused mixer tracks instead (see Mixer Mode). Otherwise what each knob controls depends on the plugin the macros act on, and FL's hint bar names the parameter and shows its value as you turn. Mappings live in [macros.py](flc_maschine/macros.py) and are our own choices.
 
 - **Which plugin:** the focused mixer effect if an effect window is focused, otherwise the selected channel's instrument.
   - **Sampler, Audio Clip and Layer channels** have no plugin; they get channel-parameter macros (not agreed yet).
@@ -58,7 +58,7 @@ Knob page 2 is labelled "Macro 1" … "Macro 8". What each knob controls depends
 
 ### Template: relative knobs
 
-E1–E16 must be **relative (two's complement)** in the Controller Editor template, like the master encoder. The repo's [FL Complete.ncm2](NI%20Maschine%20MK2/FL%20Complete.ncm2) is set up that way, with the knob page 1 labels (Volume, Pan, Pitch, Range, Gate, Shift, Swing, Mixer) and page 2 labels (Macro 1 … Macro 8). Open it in Controller Editor and send it to the MK2.
+E1–E16 must be **relative (two's complement)** in the Controller Editor template, like the master encoder. The repo's [FL Complete.ncm2](NI%20Maschine%20MK2/FL%20Complete.ncm2) is set up that way, with the knob page 1 labels (Volume, Pan, Mod X, Mod Y, Gate, Shift, Swing, Mixer) and page 2 labels (Macro 1 … Macro 8). Open it in Controller Editor and send it to the MK2.
 - **Pitfall, knobs left absolute:** E1–E8 barely move their parameters and can go the wrong way, because absolute values are read as small relative steps.
 - **Pitfall, template changed in Controller Editor:** save it back over the repo's file, so the tests (`test_template.py`) keep the script and the template in step.
 
@@ -199,25 +199,25 @@ These are all of the controls present on the hardware with their location, label
 | Top    | F14         |               | Button  | next preset of the selected channel's plugin; the hint shows its name | on button page 2 |
 | Top    | F15         |               | Button  | toggle fixed velocity: pads play at full velocity | illuminated while fixed velocity is on; on button page 2 |
 | Top    | F16         |               | Button  | auto mixer track: route each selected channel to the next empty mixer track, named and coloured after the channel, like FL's Ctrl+L (see Presets and Mixer Tracks) | on button page 2 |
-| Top    | Sampling    |               | Button  |                                         |                                                     |
+| Top    | Sampling    | Edit          | Button  | open Edison with its Audio Logger preset on the selected channel's mixer track (in Mixer pad mode, the selected mixer track), ready to record it; shift mode (Edit): the event editor for the parameter of the last knob turned (see Sampling and Edit) | lit in shift mode |
 | Top    | All         | Save          | Button  | save the project (shift mode); save a new version of it (new mode, FL's Save new version) | lit in shift and new mode |
 | Top    | Auto        |               | Button  |                                         |                                                     |
 | Top    | E1          | Volume        | Encoder | selected channel's volume | relative; labelled "Volume" on the display; FL's hint bar shows the value |
 | Top    | E2          | Pan           | Encoder | selected channel's pan | relative; labelled "Pan" on the display; FL's hint bar shows the value |
-| Top    | E3          | Pitch         | Encoder | selected channel's pitch (the knob shift Pads 13–16 transpose) | relative; labelled "Pitch" on the display; FL's hint bar shows the value |
-| Top    | E4          | Range         | Encoder | selected channel's pitch range, the reach of E3's pitch knob: one semitone per step, from ±1 to ±48 | relative; labelled "Range" on the display; FL's hint bar shows the range |
+| Top    | E3          | Mod X         | Encoder | selected channel's Mod X (the plugin wrapper / channel settings knob; FL decides what it modulates, often filter cutoff) | relative; labelled "Mod X" on the display; FL's hint bar shows the value |
+| Top    | E4          | Mod Y         | Encoder | selected channel's Mod Y (FL decides what it modulates, often filter resonance); the channel's pitch is on shift Pads 13–16 | relative; labelled "Mod Y" on the display; FL's hint bar shows the value |
 | Top    | E5          | Gate          | Encoder | selected channel's gate time (Misc functions, Time) | relative; labelled "Gate" on the display; FL's hint bar shows the value |
 | Top    | E6          | Shift         | Encoder | selected channel's time shift (Misc functions, Time) | relative; labelled "Shift" on the display; FL's hint bar shows the value |
 | Top    | E7          | Swing         | Encoder | selected channel's swing mix (Misc functions, Time) | relative; labelled "Swing" on the display; FL's hint bar shows the value |
 | Top    | E8          | Mixer         | Encoder | route the selected channel to the next / previous mixer track, one per step (Master to the last insert) | relative; labelled "Mixer" on the display; FL's hint bar shows the value |
-| Top    | E9          | Macro 1       | Encoder | Macro 1: a parameter of the focused plugin, which depends on the plugin (see Macros below) | relative; labelled "Macro 1"; FL's hint bar names the parameter and shows its value |
-| Top    | E10         | Macro 2       | Encoder | Macro 2: a parameter of the focused plugin, which depends on the plugin (see Macros below) | relative; labelled "Macro 2"; FL's hint bar names the parameter and shows its value |
-| Top    | E11         | Macro 3       | Encoder | Macro 3: a parameter of the focused plugin, which depends on the plugin (see Macros below) | relative; labelled "Macro 3"; FL's hint bar names the parameter and shows its value |
-| Top    | E12         | Macro 4       | Encoder | Macro 4: a parameter of the focused plugin, which depends on the plugin (see Macros below) | relative; labelled "Macro 4"; FL's hint bar names the parameter and shows its value |
-| Top    | E13         | Macro 5       | Encoder | Macro 5: a parameter of the focused plugin, which depends on the plugin (see Macros below) | relative; labelled "Macro 5"; FL's hint bar names the parameter and shows its value |
-| Top    | E14         | Macro 6       | Encoder | Macro 6: a parameter of the focused plugin, which depends on the plugin (see Macros below) | relative; labelled "Macro 6"; FL's hint bar names the parameter and shows its value |
-| Top    | E15         | Macro 7       | Encoder | Macro 7: a parameter of the focused plugin, which depends on the plugin (see Macros below) | relative; labelled "Macro 7"; FL's hint bar names the parameter and shows its value |
-| Top    | E16         | Macro 8       | Encoder | Macro 8: a parameter of the focused plugin, which depends on the plugin (see Macros below) | relative; labelled "Macro 8"; FL's hint bar names the parameter and shows its value |
+| Top    | E9          | Macro 1       | Encoder | Macro 1: a parameter of the focused plugin, which depends on the plugin (see Macros below); in Mixer pad mode, the volume of the focused mixer track in column 1 | relative; labelled "Macro 1"; FL's hint bar names the parameter and shows its value |
+| Top    | E10         | Macro 2       | Encoder | Macro 2: a parameter of the focused plugin, which depends on the plugin (see Macros below); in Mixer pad mode, the volume of the focused mixer track in column 2 | relative; labelled "Macro 2"; FL's hint bar names the parameter and shows its value |
+| Top    | E11         | Macro 3       | Encoder | Macro 3: a parameter of the focused plugin, which depends on the plugin (see Macros below); in Mixer pad mode, the volume of the focused mixer track in column 3 | relative; labelled "Macro 3"; FL's hint bar names the parameter and shows its value |
+| Top    | E12         | Macro 4       | Encoder | Macro 4: a parameter of the focused plugin, which depends on the plugin (see Macros below); in Mixer pad mode, the volume of the focused mixer track in column 4 | relative; labelled "Macro 4"; FL's hint bar names the parameter and shows its value |
+| Top    | E13         | Macro 5       | Encoder | Macro 5: a parameter of the focused plugin, which depends on the plugin (see Macros below); in Mixer pad mode, the pan of the focused mixer track in column 1 | relative; labelled "Macro 5"; FL's hint bar names the parameter and shows its value |
+| Top    | E14         | Macro 6       | Encoder | Macro 6: a parameter of the focused plugin, which depends on the plugin (see Macros below); in Mixer pad mode, the pan of the focused mixer track in column 2 | relative; labelled "Macro 6"; FL's hint bar names the parameter and shows its value |
+| Top    | E15         | Macro 7       | Encoder | Macro 7: a parameter of the focused plugin, which depends on the plugin (see Macros below); in Mixer pad mode, the pan of the focused mixer track in column 3 | relative; labelled "Macro 7"; FL's hint bar names the parameter and shows its value |
+| Top    | E16         | Macro 8       | Encoder | Macro 8: a parameter of the focused plugin, which depends on the plugin (see Macros below); in Mixer pad mode, the pan of the focused mixer track in column 4 | relative; labelled "Macro 8"; FL's hint bar names the parameter and shows its value |
 | Master | Volume      |               | Button  | toggle encoder override: the encoder adjusts master volume | illuminated while the override is on |
 | Master | Swing       |               | Button  | toggle encoder override: the encoder adjusts master swing | illuminated while the override is on |
 | Master | Tempo       |               | Button  | toggle encoder override: the encoder adjusts master tempo | illuminated while the override is on |
@@ -264,6 +264,15 @@ These are all of the controls present on the hardware with their location, label
 - new mode w buttons for adding new patterns/channels, etc
 - pads light up on midi out 
 - encoder controls active screen + overrides
+
+### Sampling and Edit
+
+- **Sampling** opens Edison on a mixer track with its **Audio Logger** preset, ready to record that track's audio: the selected channel's track, so you sample the instrument you're playing, or in Mixer pad mode the selected mixer track (with no channel selected, the selected mixer track too). The hint names the track.
+- **Shift + Sampling (Edit)** opens FL's event editor on the parameter the last MK2 knob turn changed: one of E1–E7's channel settings, or Mixer mode's volume and pan knobs. Before any knob is turned, the selected channel's volume.
+- **Pitfall:** Edit follows knobs turned *on the MK2*. A control moved with the mouse doesn't count (FL has no "last tweaked" function for scripts), and neither do E8 or the plugin macros.
+- **Pitfall:** the Audio Logger records when Edison's own recording is armed and started; opening it doesn't start recording.
+- **Pressing it again:** if the track already has an Edison (in any effect slot, renamed or not), Sampling brings that one forward instead of loading another. FL's own "reuse" option for the launcher didn't prevent duplicates, so the script checks the slots itself.
+- **Pitfall:** only an Edison on the track being sampled counts: one on another track doesn't stop a new one loading here.
 
 ### Pattern Length
 
@@ -340,6 +349,8 @@ The pads are 4 mixer tracks at a time (the focus), one column of 4 pads per trac
   - **Colours:** the sources' routing pads are bright blue. A routing pad is bright yellow when every source sends there (a press removes the sends), dim yellow when only some do (a press adds the rest), and dim blue otherwise.
   - **Sources:** the selected tracks wherever they are, on the pads or not; the current track if none is selected. Master is never a source.
   - **Refused routes:** if FL refuses a route (one that would loop, say), the others still apply and the hint counts the refusals.
+- **Volume and pan (knob page 2):** E9–E12 are the 4 focused tracks' volumes and E13–E16 their pans, left to right like the columns, and they follow the focus. FL moves its own faders and knobs and shows the track and value in the hint bar.
+  - **Pitfall:** the MK2's display still labels these knobs "Macro 1" … "Macro 8" (template labels can't change with the mode); the hint bar shows what they change.
 - **Focus with the encoder:** while the Mixer is focused (turning to Mixer mode brings it forward), each click moves the focus one track, through every track, empty ones included.
 - **Focus with the Group buttons:** 8 groups of 4 can't cover every track, so they jump by blocks of 4 *used* tracks: Group A to the 1st used track, B to the 5th, … H to the 29th. Used tracks are Master, tracks with a channel routed to them, and tracks with a name of their own. A group is bright while its block includes one of the focused tracks, dim if it has a block, and dark if there aren't enough used tracks.
 - **The red box:** for 2 seconds FL outlines the 4 focused tracks on the Mixer, when you enter Mixer mode, jump or scroll, and the Mixer scrolls so all 4 are on screen (as the Channel Rack does in Channels mode). The selection doesn't change.
@@ -381,7 +392,7 @@ The pads edit the selected Channel Rack channel's step sequencer, in the current
 
 F3 or F11 toggles shift mode, F4 toggles new mode and F12 toggles color mode. Only one of them is on at a time: turning one on turns the others off. The mode's button stays lit while it is on (both F3 and F11 for shift).
 
-- **Shift mode** gives controls their "(shift mode)" function above, such as Browse (plugin picker), Play (metro), Rec (count-in), All (save), Note Repeat (tap tempo), Restart (loop recording), Select (the Piano Roll) and the pads (undo, redo, quantize, clear, copy, paste, …). It stays on until F3 or F11 is pressed again. In shift mode the pads never play notes.
+- **Shift mode** gives controls their "(shift mode)" function above, such as Browse (plugin picker), Sampling (Edit: the event editor), Play (metro), Rec (count-in), All (save), Note Repeat (tap tempo), Restart (loop recording), Select (the Piano Roll) and the pads (undo, redo, quantize, clear, copy, paste, …). It stays on until F3 or F11 is pressed again. In shift mode the pads never play notes.
 - **New mode** gives controls their "(new mode)" function: Browse opens FL's Add menu to add a channel, Scene starts a new pattern, and All saves a new version of the project. New mode is one-shot: using a new-mode function turns it off. Controls without a new-mode function keep their normal function, and new mode stays on.
 - **Color mode** turns the pads into a palette of 16 colours: 16 hues round the colour wheel, pad 1 red onwards.
   - **Picking:** pressing a pad gives that colour to every selected Channel Rack channel (all of a push-and-turn selection), and the hint says "Channel colour: 9". With no channel selected, the hint says so.

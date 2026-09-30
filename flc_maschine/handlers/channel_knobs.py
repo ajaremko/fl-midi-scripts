@@ -1,13 +1,13 @@
 """
 E1-E8: the selected Channel Rack channel's own settings, the ones every channel has. The knobs are
-relative, and the template labels them on the MK2's display (Volume, Pan, Pitch, Range, Gate,
+relative, and the template labels them on the MK2's display (Volume, Pan, Mod X, Mod Y, Gate,
 Shift, Swing, Mixer); FL's hint bar shows the parameter and its new value.
 
-Each is a channel REC event: channels.getRecEventId(channel) + a REC_Chan_ offset. A turn steps it
+E1-E7 are channel REC events: channels.getRecEventId(channel) + a REC_Chan_ offset. A turn steps it
 with channels.incEventValue, which works in the event's own units and range, and writes it back
-with general.processRECEvent, as Mikey_Maschine does for swing. E4 sets the pitch knob's range
-(channels.setChannelPitch, unit 2), and E8 steps the mixer track routing one track at a time, as
-the Fire does.
+with general.processRECEvent, as Mikey_Maschine does for swing. E3 and E4 are the channel's Mod X
+and Mod Y, whose events keep their old filter names (REC_Chan_FCut, REC_Chan_FRes); FL decides what
+they modulate. E8 steps the mixer track routing one track at a time, as the Fire does.
 """
 
 import channels
@@ -17,14 +17,14 @@ import mixer
 import ui
 
 from .. import events
-from .pads import MAX_PITCH_RANGE
 
 # Knob -> (REC_Chan_ offset, resolution scale). Scale 1.0 is FL's own knob resolution (EKRes) per
 # encoder step; raise it for coarser steps, lower it for finer ones.
 KNOBS = {
     "E1": (midi.REC_Chan_Vol, 1.0),  # Volume
     "E2": (midi.REC_Chan_Pan, 1.0),  # Pan
-    "E3": (midi.REC_Chan_Pitch, 1.0),  # Pitch
+    "E3": (midi.REC_Chan_FCut, 1.0),  # Mod X
+    "E4": (midi.REC_Chan_FRes, 1.0),  # Mod Y
     "E5": (midi.REC_Chan_GateTime, 1.0),  # Gate
     "E6": (midi.REC_Chan_TimeOfs, 1.0),  # Shift: time offset
     "E7": (midi.REC_Chan_SwingMix, 1.0),  # Swing
@@ -52,21 +52,7 @@ def turn(controller, ev):
     event_id = channels.getRecEventId(channel) + offset
     value = channels.incEventValue(event_id, ev.delta, midi.EKRes * scale)
     general.processRECEvent(event_id, value, SET_FLAGS)
-
-
-def pitch_range(controller, ev):
-    """E4: widen or narrow the selected channel's pitch range (the reach of E3's pitch knob), one
-    semitone per encoder message, between 1 and MAX_PITCH_RANGE (as for shift Pads 13-16)."""
-    if ev.kind != events.TURN:
-        return
-    channel = _selected_channel()
-    if channel < 0:
-        return
-    current = int(round(channels.getChannelPitch(channel, 2)))
-    semitones = max(1, min(MAX_PITCH_RANGE, current + (1 if ev.delta > 0 else -1)))
-    if semitones != current:
-        channels.setChannelPitch(channel, semitones, 2)  # unit 2: the range
-    ui.setHintMsg("Pitch range: +/-%d semitones" % semitones)
+    controller.state.last_event_id = event_id  # for Shift + Sampling (Edit)
 
 
 def mixer_track(controller, ev):
