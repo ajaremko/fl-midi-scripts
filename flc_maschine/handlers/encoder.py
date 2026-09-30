@@ -20,7 +20,7 @@ import transport
 import ui
 
 from .. import events
-from . import channel_pads, note_repeat, pad_modes, selection
+from . import channel_pads, mixer_pads, note_repeat, pad_modes, selection
 from .common import on_press
 
 VOLUME_STEP = 0.05  # master volume, 0-1, per encoder step
@@ -144,6 +144,8 @@ def turn(controller, ev):
         adjust(state, ev.delta)
     elif channel_pads.scrolls(state):
         channel_pads.scroll(state, ev.delta)  # Channels mode in the Channel Rack: move the pads' focus
+    elif mixer_pads.scrolls(state):
+        mixer_pads.scroll(state, ev.delta)  # Mixer mode in the Mixer: move the pads' focus
     else:
         _navigate(ev.delta)
 

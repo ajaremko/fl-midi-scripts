@@ -3,7 +3,7 @@ import general
 import ui
 
 from . import bridge_link, diagnostics, dispatcher, events, feedback, log
-from .handlers import channel_pads, pads, presets, sequencer, ui_commands
+from .handlers import channel_pads, mixer_pads, pads, presets, sequencer, ui_commands
 from .rendering import renderer
 from .rendering.fl_state import FlSnapshot
 from .rendering.output import LedWriter
@@ -146,11 +146,14 @@ class MaschineMk2:
         """Read FL's state and update every LED. Only called from OnInit and OnIdle."""
         began = diagnostics.clock()
         state = self.state
-        fl = FlSnapshot.read(state.pad_mode, state.step_page, state.channel_offset)
-        if channel_pads.follow(state, fl):
-            # Channels mode's focus was past the last channel (channels deleted, or another Channel
-            # Rack group): it moved back, so read the channels it now shows.
-            fl = FlSnapshot.read(state.pad_mode, state.step_page, state.channel_offset)
+        fl = FlSnapshot.read(state)
+        # Channels or Mixer mode's focus was past the last channel or track (deleted, or another
+        # Channel Rack group): it moved back, so read what it now shows. Both always run: outside
+        # its mode each forgets its red box.
+        moved = channel_pads.follow(state, fl)
+        moved = mixer_pads.follow(state, fl) or moved
+        if moved:
+            fl = FlSnapshot.read(state)
         self.fl = fl
         pads.follow_fpc_selection(state, fl)
         sequencer.follow(state, fl)

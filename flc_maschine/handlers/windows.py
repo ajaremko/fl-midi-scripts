@@ -1,5 +1,5 @@
 """
-Window buttons (BROWSE, F1-F4): show and focus a window, or hide it if it is already focused.
+Window buttons (BROWSE, F5-F8): show and focus a window, or hide it if it is already focused.
 """
 
 import ui

@@ -64,6 +64,12 @@ class ControllerState:
         self.channel_offset = 0
         self.channel_box = None
         self.channel_held = {}
+        # Mixer pad mode (handlers/mixer_pads.py): the focus's first mixer track (0 is Master), moved
+        # by the Group buttons and the encoder; the first track the red box last showed, or None to
+        # show it again; and the select (top row) pads held, so another press adds to the selection.
+        self.mixer_first = 0
+        self.mixer_box = None
+        self.mixer_select_held = set()
         # Note Repeat mode (bridge mode only), cycled by its button: note_repeat.OFF (0), ON
         # (straight divisions) or TRIPLETS. The MK2 bridge repeats held pads while it isn't OFF.
         self.note_repeat = 0

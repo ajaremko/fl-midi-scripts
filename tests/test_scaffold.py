@@ -139,6 +139,12 @@ class ScriptTestCase(unittest.TestCase):
         ui.visible = set()
         ui.rects = []
         general.undo_points = []
+        mixer.muted = set()
+        mixer.armed = set()
+        mixer.routes = set()
+        mixer.refused = set()
+        mixer.routing_changes = 0
+        ui.mi_rects = []
         general.ppq = 96
         general.ppb = 384
         self.log = io.StringIO()
@@ -1724,10 +1730,25 @@ class PadModeTest(ScriptTestCase):
             modes.append(self.controller.state.pad_mode)
         self.assertEqual(modes, [PADS, KEYBOARD, SEQUENCER, MIXER, MIXER])
         self.assertEqual(ui.hints[-5:], ["Pad mode: Pads", "Pad mode: Keyboard", "Pad mode: Sequencer",
-                                         "Pad mode: Mixer (not written yet)", "Pad mode: Mixer (not written yet)"])
+                                         "Pad mode: Mixer", "Pad mode: Mixer"])
         self.turn(-5)  # one mode per message, however fast
         self.assertEqual(self.controller.state.pad_mode, SEQUENCER)
         self.assertEqual(transport.calls, [])  # no navigation while the override is on
+
+    def test_channels_and_mixer_focus_their_windows(self):
+        ui.focused = midi.widBrowser
+        self.press("PAD_MODE")
+        self.turn(1)  # Keyboard: no window
+        self.assertEqual(ui.focused, midi.widBrowser)
+        self.turn(-1)  # Pads
+        self.turn(-1)  # Channels
+        self.assertEqual(ui.focused, midi.widChannelRack)
+        ui.focused = midi.widPlaylist  # e.g. clicked elsewhere
+        self.turn(-1)  # already at Channels: the focus stays
+        self.assertEqual(ui.focused, midi.widPlaylist)
+        for _ in range(4):
+            self.turn(1)  # Pads, Keyboard, Sequencer, Mixer
+        self.assertEqual(ui.focused, midi.widMixer)
 
     def test_the_pad_mode_stays_after_the_override_and_the_encoder_navigates_again(self):
         ui.focused = midi.widChannelRack
@@ -1735,20 +1756,6 @@ class PadModeTest(ScriptTestCase):
         self.assertEqual(self.controller.state.pad_mode, SEQUENCER)
         self.turn(1)
         self.assertEqual(transport.calls, [("globalTransport", midi.FPT_Down, 1)])
-
-    def check_silent_dark_pads_and_working_groups(self, pad_mode):
-        self.pick(pad_mode)
-        event = self.send(note_on(controls.BY_ID["PAD_1"].number))
-        self.assertTrue(event.handled)  # not played
-        self.assertIn("unimplemented: PAD_1", self.log.getvalue())
-        self.send(note_off(controls.BY_ID["PAD_1"].number))
-        self.assertTrue(all(self.led("PAD_%d" % (i + 1)) == colors.OFF for i in range(16)))
-        self.press("GROUP_B")
-        self.assertEqual(self.controller.state.pad_group, 1)
-        self.assertNotEqual(self.led("GROUP_B"), colors.OFF)
-
-    def test_mixer_pads_are_silent_and_dark_until_written(self):
-        self.check_silent_dark_pads_and_working_groups(MIXER)
 
     def test_shift_pads_work_in_every_pad_mode(self):
         self.pick(KEYBOARD)
@@ -2635,10 +2642,15 @@ class ChannelsModeTest(ScriptTestCase):
         self.turn(-1)
         self.assertEqual(ui.rects[-1], (0, 15, 0, 5, 2000, flags))
 
-    def test_no_red_box_while_the_channel_rack_is_hidden(self):
+    def test_entering_focuses_the_channel_rack(self):
         self.enter()
+        self.assertEqual(ui.focused, midi.widChannelRack)
+
+    def test_no_red_box_while_the_channel_rack_is_hidden(self):
+        self.enter()  # focuses the Channel Rack, so the box shows once
+        ui.focused = midi.widBrowser  # the Channel Rack closed since
         self.press("GROUP_B")
-        self.assertEqual(ui.rects, [])
+        self.assertEqual(len(ui.rects), 1)
 
     def test_the_focus_moves_back_when_channels_are_removed(self):
         self.enter()
@@ -2654,6 +2666,269 @@ class ChannelsModeTest(ScriptTestCase):
         self.send(note_on(controls.BY_ID["PAD_1"].number))  # undo
         self.assertIn("undoUp", general.calls)
         self.assertEqual(channels.notes, [])
+
+
+
+class MixerModeTest(ScriptTestCase):
+    """Mixer pad mode: 4 mixer tracks in columns of select, mute, arm and routing pads. The stub mixer
+    has Master (0) and inserts 1-8."""
+
+    DIM_WHITE = (0, 0, renderer.MIXER_DIM_BRIGHTNESS)
+    DIM_BLUE = (85, 127, renderer.MIXER_DIM_BRIGHTNESS)
+
+    def setUp(self):
+        super().setUp()
+        mixer.track_colors = {track: 0xFF0000 for track in range(9)}  # red: hue 0
+
+    def enter(self):
+        self.send(cc(controls.BY_ID["PAD_MODE"].number))
+        for _ in range(3):
+            self.send(cc(controls.BY_ID["ENCODER"].number, 1))  # Keyboard, Sequencer, Mixer
+        self.send(cc(controls.BY_ID["PAD_MODE"].number, 0))  # override off
+        self.assertEqual(self.controller.state.pad_mode, MIXER)
+
+    def pad(self, number):
+        event = self.send(note_on(controls.BY_ID["PAD_%d" % number].number))
+        self.send(note_off(controls.BY_ID["PAD_%d" % number].number))
+        return event
+
+    def press(self, control_id, value=127):
+        return self.send(cc(controls.BY_ID[control_id].number, value))
+
+    def turn(self, delta):
+        del transport.calls[:]
+        return self.send(cc(controls.BY_ID["ENCODER"].number, delta & 0x7F))
+
+    def led(self, control_id):
+        return self.controller.leds._sent[control_id]
+
+    def red(self, brightness):
+        return (0, 127, brightness)
+
+    def use_tracks(self):
+        """Used tracks 0, 2, 3, 5, 7, 8: channels routed to 2, 3 and 5, and 7 and 8 named."""
+        channels.fx_tracks = {0: 2, 1: 3, 2: 5}
+        mixer.track_names = {7: "Bus", 8: "Reverb"}
+
+    def test_entering_focuses_the_mixer_and_lights_the_columns(self):
+        self.enter()
+        self.assertEqual(ui.focused, midi.widMixer)
+        self.assertEqual(self.led("PAD_13"), self.red(renderer.TRACK_DIM_BRIGHTNESS))  # Master, not selected
+        self.assertEqual(self.led("PAD_9"), colors.GREEN)  # unmuted
+        self.assertEqual(self.led("PAD_5"), colors.OFF)  # not armed
+        self.assertEqual(self.led("PAD_1"), self.DIM_BLUE)  # routing, at rest
+
+    def test_top_pads_select_their_track(self):
+        self.enter()
+        self.assertTrue(self.pad(14).handled)
+        self.assertEqual(mixer.track_number_flags[-1], (1, midi.curfxScrollToMakeVisible))
+        self.assertEqual(mixer.selected_tracks, {1})
+        self.assertEqual(self.led("PAD_14"), RED)
+        self.assertEqual(self.led("PAD_13"), self.red(renderer.TRACK_DIM_BRIGHTNESS))
+
+    def test_mute_pads_toggle_mute(self):
+        self.enter()
+        self.pad(10)  # track 1
+        self.assertEqual(mixer.muted, {1})
+        self.assertEqual(ui.hints[-1], "Insert 1: muted")
+        self.assertEqual(self.led("PAD_10"), self.DIM_WHITE)
+        self.assertEqual(self.led("PAD_14"), self.red(renderer.MUTED_TRACK_BRIGHTNESS))  # its select pad dims
+        self.pad(14)  # selected while muted
+        self.assertEqual(self.led("PAD_14"), self.red(renderer.TRACK_DIM_BRIGHTNESS))
+        self.pad(10)
+        self.assertEqual(mixer.muted, set())
+        self.assertEqual(self.led("PAD_10"), colors.GREEN)
+
+    def test_arm_pads_toggle_recording(self):
+        self.enter()
+        self.pad(6)  # track 1
+        self.assertEqual(mixer.armed, {1})
+        self.assertEqual(ui.hints[-1], "Insert 1: armed")
+        self.assertEqual(self.led("PAD_6"), colors.RED)
+        self.pad(6)
+        self.assertEqual(mixer.armed, set())
+        self.assertEqual(self.led("PAD_6"), colors.OFF)
+
+    def select(self, *tracks):
+        """Select tracks in FL, e.g. with the mouse, and render."""
+        mixer.selected_tracks = set(tracks)
+        mixer.track_number = tracks[0] if tracks else 0
+        self.refresh()
+
+    def test_a_routing_pad_routes_the_selected_track_to_it(self):
+        self.enter()
+        self.pad(14)  # select track 1
+        self.assertEqual(self.led("PAD_2"), colors.BLUE)  # track 1 is the source
+        self.assertEqual(self.led("PAD_4"), self.DIM_BLUE)
+        self.assertTrue(self.pad(4).handled)  # track 3's routing pad
+        self.assertEqual(mixer.routes, {(1, 3)})
+        self.assertEqual(mixer.routing_changes, 1)
+        self.assertEqual(ui.hints[-1], "Insert 1 -> Insert 3: on")
+        self.assertEqual(self.led("PAD_4"), colors.YELLOW)
+        self.pad(4)
+        self.assertEqual(mixer.routes, set())
+        self.assertEqual(ui.hints[-1], "Insert 1 -> Insert 3: off")
+        self.assertEqual(self.led("PAD_4"), self.DIM_BLUE)
+
+    def test_several_sources_add_the_missing_sends_or_remove_them_all(self):
+        self.enter()
+        self.select(1, 2)
+        mixer.routes = {(2, 3)}  # only track 2 sends to 3 so far
+        self.refresh()
+        self.assertEqual([self.led("PAD_2"), self.led("PAD_3")], [colors.BLUE, colors.BLUE])
+        self.assertEqual(self.led("PAD_4"), (21, 127, renderer.SOME_ROUTED_BRIGHTNESS))  # dim yellow: some
+        self.pad(4)
+        self.assertEqual(mixer.routes, {(1, 3), (2, 3)})  # added the missing one, removed nothing
+        self.assertEqual(ui.hints[-1], "2 tracks -> Insert 3: on")
+        self.assertEqual(self.led("PAD_4"), colors.YELLOW)  # all
+        self.pad(4)
+        self.assertEqual(mixer.routes, set())
+        self.assertEqual(ui.hints[-1], "2 tracks -> Insert 3: off")
+
+    def test_master_is_never_a_source(self):
+        self.enter()
+        self.select(0, 1)
+        self.assertEqual(self.led("PAD_1"), self.DIM_BLUE)  # Master: not a source
+        self.pad(3)  # track 2
+        self.assertEqual(mixer.routes, {(1, 2)})
+        self.select(0)
+        self.pad(3)
+        self.assertEqual(ui.hints[-1], "Select the tracks to route to Insert 2 (Master can't be routed)")
+
+    def test_master_is_a_destination(self):
+        self.enter()
+        self.select(1, 2)
+        mixer.routes = {(1, 0), (2, 0)}  # inserts send to Master by default
+        self.refresh()
+        self.assertEqual(self.led("PAD_1"), colors.YELLOW)
+        self.pad(1)  # removes both Master sends
+        self.assertEqual(mixer.routes, set())
+
+    def test_with_nothing_selected_the_current_track_is_the_source(self):
+        self.enter()
+        mixer.selected_tracks = set()
+        mixer.track_number = 2
+        self.refresh()
+        self.assertEqual(self.led("PAD_3"), colors.BLUE)
+        self.pad(4)
+        self.assertEqual(mixer.routes, {(2, 3)})
+
+    def test_a_selected_tracks_own_routing_pad_only_hints(self):
+        self.enter()
+        self.select(1, 2)
+        self.pad(3)  # track 2 is a source
+        self.assertEqual(mixer.routes, set())
+        self.assertEqual(ui.hints[-1], "Insert 2 is selected: select only the tracks to route to it")
+
+    def test_refused_routes_are_reported_and_the_rest_apply(self):
+        self.enter()
+        self.select(1, 2)
+        mixer.refused = {(2, 3)}
+        self.pad(4)
+        self.assertEqual(mixer.routes, {(1, 3)})
+        self.assertEqual(ui.hints[-1], "2 tracks -> Insert 3: on (1 refused)")
+        mixer.refused = {(1, 4), (2, 4)}
+        changes = mixer.routing_changes
+        self.turn(1)  # track 4 comes into view on pad 4
+        self.pad(4)
+        self.assertEqual(ui.hints[-1], "Can't route 2 tracks to Insert 4")
+        self.assertEqual(mixer.routing_changes, changes)
+
+    def test_sources_off_the_pads_still_route(self):
+        self.enter()
+        self.select(7)  # not on the pads (tracks 0-3)
+        self.pad(4)
+        self.assertEqual(mixer.routes, {(7, 3)})
+        self.assertEqual(ui.hints[-1], "Insert 7 -> Insert 3: on")
+
+    def test_holding_a_select_pad_builds_a_selection(self):
+        self.enter()
+        self.send(note_on(controls.BY_ID["PAD_14"].number))  # hold: select track 1 only
+        self.pad(16)  # add track 3
+        self.assertEqual(mixer.selected_tracks, {1, 3})
+        self.pad(16)  # and remove it again
+        self.assertEqual(mixer.selected_tracks, {1})
+        self.pad(15)  # add track 2
+        self.send(note_off(controls.BY_ID["PAD_14"].number))
+        self.assertEqual(mixer.selected_tracks, {1, 2})
+        self.assertEqual([self.led("PAD_2"), self.led("PAD_3")], [colors.BLUE, colors.BLUE])
+        self.pad(13)  # nothing held now: Master only
+        self.assertEqual(mixer.selected_tracks, {0})
+
+    def test_group_buttons_jump_by_blocks_of_used_tracks(self):
+        self.use_tracks()
+        self.enter()
+        lit, dim = colors.WHITE, (0, 0, renderer.DIM_BRIGHTNESS)
+        self.assertEqual([self.led("GROUP_" + g) for g in "ABC"], [lit, dim, colors.OFF])
+        self.press("GROUP_B")  # its first used track, 7, shown as far right as the tracks allow
+        self.assertEqual(self.controller.state.mixer_first, 5)
+        self.assertEqual(ui.hints[-1], "Mixer: Insert 5 - Reverb")
+        self.assertEqual([self.led("GROUP_" + g) for g in "ABC"], [lit, lit, colors.OFF])  # 5 is in A's block
+        self.press("GROUP_C")
+        self.assertEqual(ui.hints[-1], "No used mixer tracks for Group C")
+        self.assertEqual(self.controller.state.mixer_first, 5)
+        self.press("GROUP_A")
+        self.assertEqual(self.controller.state.mixer_first, 0)
+
+    def test_the_encoder_scrolls_the_focus_in_the_mixer(self):
+        self.enter()
+        for _ in range(10):
+            self.turn(1)
+        self.assertEqual(self.controller.state.mixer_first, 5)  # tracks 5-8, the last
+        self.turn(-1)
+        self.assertEqual(self.controller.state.mixer_first, 4)
+        self.assertEqual(ui.hints[-1], "Mixer: Insert 4 - Insert 7")
+        self.assertEqual(transport.calls, [])  # didn't move FL's selection
+
+    def test_the_encoder_navigates_elsewhere(self):
+        self.enter()
+        ui.focused = midi.widBrowser
+        self.turn(1)
+        self.assertEqual(transport.calls, [("globalTransport", midi.FPT_Down, 1)])
+        self.assertEqual(self.controller.state.mixer_first, 0)
+
+    def test_push_and_turn_still_selects_tracks(self):
+        self.enter()
+        self.press("ENCODER_PUSH")
+        self.turn(1)
+        self.turn(1)
+        self.press("ENCODER_PUSH", 0)
+        self.assertEqual(mixer.selected_tracks, {0, 1, 2})
+        self.assertEqual(self.controller.state.mixer_first, 0)
+
+    def test_red_box_on_entering_jumping_and_scrolling(self):
+        self.use_tracks()
+        self.enter()
+        self.assertEqual(ui.mi_rects, [(0, 3, 2000)])
+        self.press("GROUP_B")
+        self.assertEqual(ui.mi_rects[-1], (5, 8, 2000))
+        self.turn(-1)
+        self.assertEqual(ui.mi_rects[-1], (4, 7, 2000))
+        ui.focused = midi.widBrowser  # the Mixer closed
+        self.press("GROUP_A")
+        self.assertEqual(len(ui.mi_rects), 3)
+
+    def test_columns_past_the_last_track_are_dark_and_do_nothing(self):
+        mixer.track_count = 4  # Master, inserts 1-2 and "Current"
+        self.enter()
+        self.assertTrue(all(self.led("PAD_%d" % n) == colors.OFF for n in (4, 8, 12, 16)))
+        self.pad(12)
+        self.assertEqual(mixer.muted, set())
+
+    def test_the_focus_moves_back_when_tracks_go(self):
+        self.enter()
+        for _ in range(5):
+            self.turn(1)
+        mixer.track_count = 6  # Master and inserts 1-4
+        self.refresh()
+        self.assertEqual(self.controller.state.mixer_first, 1)
+
+    def test_shift_pads_still_override(self):
+        self.enter()
+        self.press("F3")
+        self.send(note_on(controls.BY_ID["PAD_1"].number))  # undo
+        self.assertIn("undoUp", general.calls)
+        self.assertEqual(mixer.routes, set())
 
 
 if __name__ == "__main__":

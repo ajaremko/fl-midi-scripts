@@ -267,7 +267,7 @@ These are all of the controls present on the hardware with their location, label
 
 ### Pad Modes
 
-Pad Mode turns on an encoder override: while it's lit, turning the encoder picks what the pads do, and the hint bar names the mode ("Pad mode: Keyboard"). The modes are in this order, and turning stops at either end; Pads is the startup mode, so turn left for Channels and right for the others. The pad mode stays when the override is turned off (press Pad Mode again, or enter Shift, New or Color mode).
+Pad Mode turns on an encoder override: while it's lit, turning the encoder picks what the pads do, and the hint bar names the mode ("Pad mode: Keyboard"). The modes are in this order, and turning stops at either end; Pads is the startup mode, so turn left for Channels and right for the others. Turning to Channels shows and focuses the Channel Rack, and turning to Mixer the Mixer. The pad mode stays when the override is turned off (press Pad Mode again, or enter Shift, New or Color mode).
 
 | Pad mode | The pads | Group buttons |
 |---|---|---|
@@ -275,10 +275,9 @@ Pad Mode turns on an encoder override: while it's lit, turning the encoder picks
 | Pads (the startup mode) | play the selected group's notes in the channel's colour; FPC banks and pad colours on an FPC channel | pick the note range |
 | Keyboard | play the selected group's notes chromatically on every channel, FPC included; lit as piano keys: C white, the other white keys in the channel's colour, black keys in a dim channel colour | pick the note range |
 | Sequencer | turn the selected channel's steps on and off, 16 at a time (see Sequencer Mode) | pick the page of steps: A is steps 1–16 … H is 113–128 |
-| Mixer | not written yet: silent and dark | pick the note range |
+| Mixer | 4 mixer tracks, one column each: select, mute, arm and routing (see Mixer Mode) | jump by blocks of 4 used mixer tracks |
 
 - **Other modes still work:** Shift, New and Color mode take over the pads as usual in every pad mode (e.g. Shift + Pad 1 is undo in Keyboard mode).
-- **Pitfall:** until it's written, Mixer's pads are silent and dark, and the hint says "(not written yet)". Turn back to Pads to play.
 - **Pitfall:** on an FPC channel, Keyboard mode plays FPC's chromatic notes (Group D pad 1 is note 48), not its pad layout, and doesn't jump to Group E. Use Pads mode for FPC's pads; turning back to Pads on an FPC jumps to Group E.
 - **Pitfall:** on a very dark channel colour the black keys can be hard to see. Their brightness is `BLACK_KEY_BRIGHTNESS` in [renderer.py](flc_maschine/rendering/renderer.py).
 - **Pitfall:** while Note Repeat is on, the encoder only changes its rate. Turn Note Repeat off to change the pad mode. With the bridge, pads are repeated in Channels, Pads and Keyboard mode (a held Channels pad repeats C5 on its channel); Sequencer's and Mixer's pads play no notes.
@@ -310,6 +309,38 @@ The pads are the Channel Rack's channels, up to 16 at a time: the focus. They sh
 - **Pitfall:** the red box only draws while the Channel Rack is visible.
 - **Pitfall:** deleting channels, or switching the Channel Rack's group, can leave the focus past the last channel; it moves back to the last division by itself.
 - **Pitfall:** the dimmer brightness of unselected channels is `CHANNEL_DIM_BRIGHTNESS` in [renderer.py](flc_maschine/rendering/renderer.py).
+
+### Mixer Mode
+
+The pads are 4 mixer tracks at a time (the focus), one column of 4 pads per track, the focus's first track on the left. Master is track 0, so at first the columns are Master and inserts 1–3.
+
+```text
+ select   select   select   select     (pads 13-16)
+ mute     mute     mute     mute       (pads 9-12)
+ arm      arm      arm      arm        (pads 5-8)
+ route    route    route    route      (pads 1-4)
+```
+
+- **Select (top row):** selects the track, and only it. The pad is the track's colour: full brightness while selected, dimmer when not, dimmest when the track is muted.
+  - **Selecting several:** hold one select pad and press others: each press adds that track to the selection, or removes it. Push and turn in the Mixer selects a range too.
+- **Mute (2nd row):** mutes or unmutes the track. Bright green while it plays, dim white while muted.
+- **Arm (3rd row):** arms the track for disk recording, or disarms it. Bright red while armed, off otherwise.
+- **Route (bottom row):** press track Y's routing pad to route the selected tracks (the sources) to Y. If every source already sends to Y, the press removes those sends; otherwise it adds the missing ones, so the sources always end up alike. Their other routes, e.g. to Master, stay. The hint says whether the sends are now on or off ("2 tracks -> Insert 5: on").
+  - **Colours:** the sources' routing pads are bright blue. A routing pad is bright yellow when every source sends there (a press removes the sends), dim yellow when only some do (a press adds the rest), and dim blue otherwise.
+  - **Sources:** the selected tracks wherever they are, on the pads or not; the current track if none is selected. Master is never a source.
+  - **Refused routes:** if FL refuses a route (one that would loop, say), the others still apply and the hint counts the refusals.
+- **Focus with the encoder:** while the Mixer is focused (turning to Mixer mode brings it forward), each click moves the focus one track, through every track, empty ones included.
+- **Focus with the Group buttons:** 8 groups of 4 can't cover every track, so they jump by blocks of 4 *used* tracks: Group A to the 1st used track, B to the 5th, … H to the 29th. Used tracks are Master, tracks with a channel routed to them, and tracks with a name of their own. A group is bright while its block includes one of the focused tracks, dim if it has a block, and dark if there aren't enough used tracks.
+- **The red box:** for 2 seconds FL outlines the 4 focused tracks on the Mixer, when you enter Mixer mode, jump or scroll.
+- **Pitfall:** a bus with effects but no channel routed to it and no name of its own doesn't count as used, so the Group buttons skip it. Name your buses.
+- **Pitfall:** a Group jump shows 4 tracks in a row from its block's first used track, so the block's other used tracks can be further right, and some columns can be empty tracks.
+- **Pitfall:** routing toggles: pressing the same routing pad again removes the sends. To send the selected tracks only to Y, remove their sends to Master the same way (press Master's routing pad).
+- **Pitfall:** Master's routing pad is usually bright yellow, because inserts send to Master by default. Pressing it removes the selected tracks' Master sends, and they go silent; press it again to restore them.
+- **Pitfall:** a selected track's own routing pad does nothing but show a hint: select only the tracks to route, then press the destination.
+- **Pitfall:** Master is never a routing source (FL doesn't route it into inserts), even when selected; with only Master selected, routing pads only show a hint. It can be a destination.
+- **Pitfall:** with the Mixer focused, the encoder scrolls the pads instead of moving FL's selected track. Push and turn still selects tracks.
+- **Pitfall:** the sources can be off the pads: check the selection (the top row's brightness, or FL's Mixer) before pressing a routing pad.
+- **Pitfall:** the red box only draws while the Mixer is visible.
 
 ### Sequencer Mode
 

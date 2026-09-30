@@ -52,3 +52,9 @@ def getVisible(window):
 
 def crDisplayRect(left, top, right, bottom, duration, flags=0):
     rects.append((left, top, right, bottom, duration, flags))
+
+mi_rects = []  # (start, end, duration) passed to miDisplayRect
+
+
+def miDisplayRect(start, end, duration, flags=0):
+    mi_rects.append((start, end, duration))

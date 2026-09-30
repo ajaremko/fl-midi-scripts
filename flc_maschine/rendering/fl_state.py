@@ -12,9 +12,11 @@ import ui
 
 from .. import fpc
 from ..handlers.sequencer import STEPS_PER_PAGE
-from ..state import CHANNELS, PADS, SEQUENCER
+from ..handlers import mixer_pads, mixer_tracks
+from ..state import CHANNELS, MIXER, PADS, SEQUENCER
 
 PADS_COUNT = 16  # pads, for Channels mode's focused channels
+TRACKS_SHOWN = 4  # columns of pads, for Mixer mode's focused tracks
 
 # Windows whose focus the renderer may show, checked in this order.
 WINDOWS = (midi.widMixer, midi.widChannelRack, midi.widPlaylist, midi.widPianoRoll, midi.widBrowser)
@@ -23,13 +25,18 @@ WINDOWS = (midi.widMixer, midi.widChannelRack, midi.widPlaylist, midi.widPianoRo
 class FlSnapshot:
     __slots__ = ("focused_window", "playing", "recording", "song_mode", "channel_color", "channel_solo",
                  "channel_muted", "fpc_channel", "fpc_banks", "tempo", "step_channel", "grid_assigned",
-                 "steps", "step_pos", "pattern_steps", "channel_count", "rack_colors", "rack_selected")
+                 "steps", "step_pos", "pattern_steps", "channel_count", "rack_colors", "rack_selected",
+                 "mixer_count", "mixer_used", "track_colors", "track_selected", "track_muted", "track_armed",
+                 "mixer_sources", "track_sends")
 
     def __init__(self, focused_window=None, playing=False, recording=False, song_mode=False,
                  channel_color=None, channel_solo=False, channel_muted=False, fpc_channel=None,
                  fpc_banks=None, tempo=120.0, step_channel=None, grid_assigned=False,
                  steps=(False,) * STEPS_PER_PAGE, step_pos=-1, pattern_steps=0, channel_count=0,
-                 rack_colors=(None,) * PADS_COUNT, rack_selected=(False,) * PADS_COUNT):
+                 rack_colors=(None,) * PADS_COUNT, rack_selected=(False,) * PADS_COUNT, mixer_count=0,
+                 mixer_used=(), track_colors=(None,) * TRACKS_SHOWN, track_selected=(False,) * TRACKS_SHOWN,
+                 track_muted=(False,) * TRACKS_SHOWN, track_armed=(False,) * TRACKS_SHOWN,
+                 mixer_sources=(), track_sends=(0,) * TRACKS_SHOWN):
         self.focused_window = focused_window  # one of WINDOWS, or None
         self.playing = playing
         self.recording = recording
@@ -54,12 +61,27 @@ class FlSnapshot:
         self.channel_count = channel_count
         self.rack_colors = rack_colors
         self.rack_selected = rack_selected
+        # Mixer pad mode only (read when it's on): Master and the inserts; the tracks in use
+        # (mixer_tracks.used_tracks); and, for the 4 tracks from the focus, each one's colour
+        # (0xRRGGBB, None past the last track), selection, mute and arm; the tracks a routing press
+        # routes from (mixer_pads.route_sources), and how many of them already send to each of the 4
+        # (not counting the track itself).
+        self.mixer_count = mixer_count
+        self.mixer_used = mixer_used
+        self.track_colors = track_colors
+        self.track_selected = track_selected
+        self.track_muted = track_muted
+        self.track_armed = track_armed
+        self.mixer_sources = mixer_sources
+        self.track_sends = track_sends
 
     @classmethod
-    def read(cls, pad_mode=PADS, step_page=0, channel_offset=0):
-        """Read FL's state. FPC's pads are only read in Pads mode, the only one that uses them, the
-        step sequencer only in Sequencer mode (its playhead makes a render per step), and the
-        focused channels only in Channels mode."""
+    def read(cls, state=None):
+        """Read FL's state, and what the controller state's pad mode needs: FPC's pads only in Pads
+        mode (the startup mode, and what no state means), the step sequencer only in Sequencer mode
+        (its playhead makes a render per step), the focused channels only in Channels mode and the
+        focused mixer tracks only in Mixer mode."""
+        pad_mode = state.pad_mode if state is not None else PADS
         focused = None
         for window in WINDOWS:
             if ui.getFocused(window):
@@ -80,10 +102,24 @@ class FlSnapshot:
             tempo=_bpm(mixer.getCurrentTempo(1)),
         )
         if pad_mode == SEQUENCER:
-            snapshot._read_steps(channel, step_page)
+            snapshot._read_steps(channel, state.step_page)
         elif pad_mode == CHANNELS:
-            snapshot._read_rack(channel_offset)
+            snapshot._read_rack(state.channel_offset)
+        elif pad_mode == MIXER:
+            snapshot._read_mixer(state.mixer_first)
         return snapshot
+
+    def _read_mixer(self, first):
+        self.mixer_count = count = mixer.trackCount() - 1  # without the "Current" utility track
+        self.mixer_used = tuple(mixer_tracks.used_tracks())
+        shown = [track if track < count else None for track in range(first, first + TRACKS_SHOWN)]
+        self.track_colors = tuple(None if t is None else mixer.getTrackColor(t) & 0xFFFFFF for t in shown)
+        self.track_selected = tuple(t is not None and bool(mixer.isTrackSelected(t)) for t in shown)
+        self.track_muted = tuple(t is not None and bool(mixer.isTrackMuted(t)) for t in shown)
+        self.track_armed = tuple(t is not None and bool(mixer.isTrackArmed(t)) for t in shown)
+        self.mixer_sources = sources = tuple(mixer_pads.route_sources())
+        self.track_sends = tuple(0 if t is None else sum(1 for s in sources if s != t and mixer.getRouteSendActive(s, t))
+                                 for t in shown)
 
     def _read_rack(self, channel_offset):
         self.channel_count = count = channels.channelCount()

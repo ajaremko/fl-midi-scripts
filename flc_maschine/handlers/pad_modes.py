@@ -9,20 +9,26 @@ Pad modes, chosen with the master encoder while the Pad Mode override is on (enc
   Pads, but chromatically on every channel (no FPC special case).
 - Sequencer: the pads toggle the selected channel's steps, 16 at a time; the Group buttons pick
   the page (handlers/sequencer.py).
-- Mixer: not written yet (placeholder pads, silent and dark).
+- Mixer: 4 mixer tracks, a column of pads each: select, mute, arm and routing; the Group buttons
+  and the encoder move the focus (handlers/mixer_pads.py).
 
 Each pad mode has a binding layer (bindings.LAYERS), searched between the global mode (Shift, New,
 Color) and base, so it only replaces what it binds. The choice stays after the override is off.
 """
 
+import midi
 import ui
 
 from ..state import CHANNELS, KEYBOARD, MIXER, PAD_MODES, PADS, SEQUENCER
 
 NAMES = {CHANNELS: "Channels", PADS: "Pads", KEYBOARD: "Keyboard", SEQUENCER: "Sequencer", MIXER: "Mixer"}
 
-# Pad modes whose pads are still unimplemented(...) placeholders: silent and dark.
-NOT_WRITTEN = (MIXER,)
+# Pad modes whose pads are still unimplemented(...) placeholders: silent and dark. All are written;
+# a new pad mode can start here, with placeholders in its bindings layer.
+NOT_WRITTEN = ()
+
+# The FL window each pad mode brings forward when the encoder turns to it, as the window buttons do.
+WINDOWS = {CHANNELS: midi.widChannelRack, MIXER: midi.widMixer}
 
 
 def show(state):
@@ -33,7 +39,12 @@ def show(state):
 
 def step(state, delta):
     """The Pad Mode override's turn: the next or previous pad mode, one per encoder message,
-    stopping at Channels and Mixer."""
+    stopping at Channels and Mixer. Turning to Channels or Mixer shows and focuses its window
+    (WINDOWS); turning against an end leaves the focus alone."""
     index = PAD_MODES.index(state.pad_mode) + (1 if delta > 0 else -1)
-    state.pad_mode = PAD_MODES[max(0, min(len(PAD_MODES) - 1, index))]
+    pad_mode = PAD_MODES[max(0, min(len(PAD_MODES) - 1, index))]
+    if pad_mode != state.pad_mode and pad_mode in WINDOWS:
+        ui.showWindow(WINDOWS[pad_mode])
+        ui.setFocused(WINDOWS[pad_mode])
+    state.pad_mode = pad_mode
     show(state)

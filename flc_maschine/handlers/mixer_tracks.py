@@ -24,10 +24,19 @@ from .common import on_press
 EFFECT_SLOTS = 10  # a mixer track's effect slots
 
 
-def _is_default_name(track):
+def is_default_name(track):
     # FL shows an unnamed track as "Insert N"; an empty name is accepted too, in case the API
     # returns that for one.
     return mixer.getTrackName(track) in ("", "Insert %d" % track)
+
+
+def used_tracks():
+    """Master and every mixer track in use, lowest first: routed to from a channel (in any channel
+    group) or given a name. Mixer mode's Group buttons jump by blocks of these. Tracks with only
+    effects don't count: checking every slot of every track would cost ~1,300 FL calls a redraw."""
+    used = {0} | {channels.getTargetFxTrack(i, True) for i in range(channels.channelCount(1))}
+    used |= {track for track in range(1, mixer.trackCount() - 1) if not is_default_name(track)}
+    return sorted(track for track in used if 0 <= track < mixer.trackCount() - 1)
 
 
 def empty_tracks():
@@ -37,7 +46,7 @@ def empty_tracks():
     return [track for track in range(1, mixer.trackCount() - 1)
             if track not in used
             and not any(mixer.isTrackPluginValid(track, slot) for slot in range(EFFECT_SLOTS))
-            and _is_default_name(track)]
+            and is_default_name(track)]
 
 
 @on_press

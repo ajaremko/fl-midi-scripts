@@ -13,9 +13,9 @@ and append it to RULES. Later rules override earlier ones.
 import midi
 
 from .. import bindings, controls, notes
-from ..handlers import sequencer
+from ..handlers import mixer_pads, sequencer
 from ..handlers.channel_colors import PALETTE
-from ..state import CHANNELS, COLOR, KEYBOARD, NEW, PADS, SEQUENCER, SHIFT
+from ..state import CHANNELS, COLOR, KEYBOARD, MIXER, NEW, PADS, SEQUENCER, SHIFT
 from . import colors
 
 # Brightness of the pads and the selected Group button. Full brightness keeps dark channel
@@ -32,6 +32,13 @@ BLACK_KEY_BRIGHTNESS = 20
 STEP_OFF_BRIGHTNESS = 20
 # Channels pad mode: channels that aren't selected, in their own colour (Color mode dims the same).
 CHANNEL_DIM_BRIGHTNESS = 70
+# Mixer pad mode: the select pads of tracks that aren't selected, and of muted tracks; and the dim
+# white of a muted track's mute pad and the dim blue of resting routing pads.
+TRACK_DIM_BRIGHTNESS = 70
+MUTED_TRACK_BRIGHTNESS = 20
+MIXER_DIM_BRIGHTNESS = 20
+# Mixer pad mode: the yellow of a routing pad only some of the selected tracks send to.
+SOME_ROUTED_BRIGHTNESS = 40
 
 _PAD_IDS = [control.id for control in controls.PADS]
 
@@ -198,6 +205,55 @@ def _channel_pads(state, fl, frame):
             frame["GROUP_" + letter] = colors.with_brightness(color, DIM_BRIGHTNESS)
 
 
+def _mixer_pad(state, fl, role, column):
+    """One Mixer mode pad: its column's track in its row's role (see mixer_pads)."""
+    track = state.mixer_first + column
+    if fl.track_colors[column] is None:
+        return colors.OFF  # past the last track
+    if role == mixer_pads.SELECT:
+        selected, muted = fl.track_selected[column], fl.track_muted[column]
+        if muted:
+            brightness = TRACK_DIM_BRIGHTNESS if selected else MUTED_TRACK_BRIGHTNESS
+        else:
+            brightness = LIT_BRIGHTNESS if selected else TRACK_DIM_BRIGHTNESS
+        return colors.with_brightness(colors.rgb_to_hsb(fl.track_colors[column]), brightness)
+    if role == mixer_pads.MUTE:
+        return colors.with_brightness(colors.WHITE, MIXER_DIM_BRIGHTNESS) if fl.track_muted[column] else colors.GREEN
+    if role == mixer_pads.ARM:
+        return colors.RED if fl.track_armed[column] else colors.OFF
+    if track in fl.mixer_sources:
+        return colors.BLUE  # a selected track: what routing presses route from
+    sends = fl.track_sends[column]
+    if sends and sends == len(fl.mixer_sources):
+        return colors.YELLOW  # every source sends here: a press removes the sends
+    if sends:
+        return colors.with_brightness(colors.YELLOW, SOME_ROUTED_BRIGHTNESS)  # some do: a press adds the rest
+    return colors.with_brightness(colors.BLUE, MIXER_DIM_BRIGHTNESS)
+
+
+def _mixer_pads(state, fl, frame):
+    """Mixer pad mode. Each column is a focused track: select (its colour, full when selected,
+    dimmer when not, dimmest when muted), mute (green, or dim white when muted), arm (red when
+    armed) and routing (bright blue for the selected tracks, which routing presses route from;
+    yellow where they all send, dim yellow where only some do; dim blue otherwise). Group buttons, in white: the blocks of 4 used tracks
+    (mixer_tracks.used_tracks) that include a focused track bright, other blocks dim, the rest dark."""
+    if state.pad_mode != MIXER:
+        return
+    for index, pad_id in enumerate(_PAD_IDS):
+        column, role = mixer_pads.column_and_role(index)
+        frame[pad_id] = _mixer_pad(state, fl, role, column)
+
+    focused = range(state.mixer_first, state.mixer_first + mixer_pads.TRACKS_SHOWN)
+    for index, letter in enumerate("ABCDEFGH"):
+        block = fl.mixer_used[index * mixer_pads.TRACKS_SHOWN:(index + 1) * mixer_pads.TRACKS_SHOWN]
+        if not block:
+            frame["GROUP_" + letter] = colors.OFF
+        elif any(track in focused for track in block):
+            frame["GROUP_" + letter] = colors.WHITE
+        else:
+            frame["GROUP_" + letter] = colors.with_brightness(colors.WHITE, DIM_BRIGHTNESS)
+
+
 def _pad_mode(state, fl, frame):
     frame["F15"] = state.fixed_velocity
     frame["NOTE_REPEAT"] = bool(
@@ -285,6 +341,7 @@ RULES = [
     _keyboard_pads,
     _sequencer_pads,
     _channel_pads,
+    _mixer_pads,
     _focused_window,
     _transport,
     _channel_state,

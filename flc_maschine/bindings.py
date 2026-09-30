@@ -19,6 +19,7 @@ from .handlers import (
     channel_knobs,
     channel_pads,
     macro_knobs,
+    mixer_pads,
     mixer_tracks,
     edit,
     encoder,
@@ -150,8 +151,8 @@ _color = {"PAD_%d" % (_i + 1): channel_colors.pick(_i) for _i in range(16)}
 # replaces only what it binds. Channels' pads play and select Channel Rack channels, and its Group
 # buttons jump the focus. Pads binds nothing: the base layer's pads are Pads mode. Keyboard plays the
 # chromatic layout on every channel (no FPC banks). Sequencer's pads toggle steps of the selected
-# channel, and its Group buttons pick the page of steps. Mixer isn't written yet: its pads are
-# placeholders (silent and dark), and its Group buttons fall through to base.
+# channel, and its Group buttons pick the page of steps. Mixer's pads are 4 mixer tracks' select,
+# mute, arm and routing pads, and its Group buttons jump by blocks of used tracks.
 _channels_pads = {"PAD_%d" % (_i + 1): channel_pads.play(_i) for _i in range(16)}
 for _index, _letter in enumerate("ABCDEFGH"):
     _channels_pads["GROUP_" + _letter] = channel_pads.jump(_index)
@@ -160,7 +161,9 @@ _keyboard_pads = {"PAD_%d" % (_i + 1): pads.play_keyboard for _i in range(16)}
 _sequencer_pads = {"PAD_%d" % (_i + 1): sequencer.toggle_step(_i) for _i in range(16)}
 for _index, _letter in enumerate("ABCDEFGH"):
     _sequencer_pads["GROUP_" + _letter] = sequencer.select_page(_index)
-_mixer_pads = {"PAD_%d" % (_i + 1): unimplemented("mixer mode") for _i in range(16)}
+_mixer_pads = {"PAD_%d" % (_i + 1): mixer_pads.pad(_i) for _i in range(16)}
+for _index, _letter in enumerate("ABCDEFGH"):
+    _mixer_pads["GROUP_" + _letter] = mixer_pads.jump(_index)
 
 LAYERS = {
     BASE: _base,

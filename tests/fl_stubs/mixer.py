@@ -80,9 +80,13 @@ def isTrackPluginValid(index, plugIndex):
 
 
 def setTrackNumber(index, flags=-1):
+    # Makes the track current and, without curfxNoDeselectAll (4), the only selected one.
     global track_number
     track_number = index
     track_number_flags.append((index, flags))
+    if flags == -1 or not flags & 4:
+        selected_tracks.clear()
+    selected_tracks.add(index)
 
 
 active_effect = None  # (track, slot) of the focused effect editor, or None
@@ -97,3 +101,56 @@ step_pos = -1  # getSongStepPos(): the step FL is playing, -1 when stopped
 
 def getSongStepPos():
     return step_pos
+
+
+muted = set()  # muted track indexes
+armed = set()  # tracks armed for recording
+routes = set()  # (source, destination) track pairs with an active send
+refused = set()  # (source, destination) pairs setRouteTo refuses, returning -1 (as MackieCU expects)
+routing_changes = 0  # afterRoutingChanged calls
+
+
+def getTrackColor(index):
+    return track_colors.get(index, 0x5F7581)  # FL's default blue-grey
+
+
+def muteTrack(index, value=-1):
+    if value == 1 or (value == -1 and index not in muted):
+        muted.add(index)
+    else:
+        muted.discard(index)
+
+
+def isTrackMuted(index):
+    return 1 if index in muted else 0
+
+
+def armTrack(index):
+    if index in armed:
+        armed.discard(index)
+    else:
+        armed.add(index)
+
+
+def isTrackArmed(index):
+    return 1 if index in armed else 0
+
+
+def setRouteTo(index, destIndex, value, updateUI=False):
+    pair = (index, destIndex)
+    if pair in refused:
+        return -1
+    if value == 1 or (value == -1 and pair not in routes):
+        routes.add(pair)
+    else:
+        routes.discard(pair)
+    return 0
+
+
+def getRouteSendActive(index, destIndex):
+    return 1 if (index, destIndex) in routes else 0
+
+
+def afterRoutingChanged():
+    global routing_changes
+    routing_changes += 1
