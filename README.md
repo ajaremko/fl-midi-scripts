@@ -56,6 +56,13 @@ Knob page 2 is labelled "Macro 1" … "Macro 8". In Mixer pad mode they control 
   - **Running out:** when there aren't enough empty tracks, the channels that got one keep it and the hint says how many didn't.
   - **Pitfall:** a bus that only receives sends from other tracks, with no effects yet and its default name, looks empty and can be taken. Name your buses (or add their effects) before using F16.
 
+### Channel Knobs (E1–E8)
+
+Knob page 1 is the selected channel's own settings: Volume, Pan, Mod X, Mod Y, Gate, Shift (time offset), Swing and Mixer (the channel's mixer track). FL's hint bar names the parameter and shows its value as you turn.
+
+- **Several channels selected:** the first selected channel steps as usual and the others follow it. E1–E7 set every selected channel to the first one's new value, and E8 routes them all to the first one's new mixer track. The hint shows the first channel (E8's adds how many channels moved).
+- **Pitfall:** when the selected channels start with different values, the first turn makes the others jump to the first channel's value.
+
 ### Template: relative knobs
 
 E1–E16 must be **relative (two's complement)** in the Controller Editor template, like the master encoder. The repo's [FL Complete.ncm2](NI%20Maschine%20MK2/FL%20Complete.ncm2) is set up that way, with the knob page 1 labels (Volume, Pan, Mod X, Mod Y, Gate, Shift, Swing, Mixer) and page 2 labels (Macro 1 … Macro 8). Open it in Controller Editor and send it to the MK2.

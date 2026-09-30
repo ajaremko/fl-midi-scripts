@@ -917,6 +917,26 @@ class ChannelKnobsTest(ScriptTestCase):
                 self.assertEqual(general.rec_events, [(base + offset, 3, self.SET), (base + offset, 2, self.SET)])
                 self.assertEqual(channels.inc_calls[-1], (base + offset, -1, midi.EKRes))
 
+    def test_other_selected_channels_are_set_to_the_first_ones_value(self):
+        channels.selected = 1
+        channels.selection = {1, 3}
+        pan = midi.REC_Chan_Pan
+        general.rec_values[channels.getRecEventId(3) + pan] = 40  # channel 3 starts elsewhere
+        self.turn("E2", +2)
+        follow = midi.REC_UpdateValue | midi.REC_UpdateControl
+        self.assertEqual(general.rec_events, [(channels.getRecEventId(1) + pan, 2, self.SET),
+                                              (channels.getRecEventId(3) + pan, 2, follow)])  # snapped
+        self.assertEqual(self.controller.state.last_event_id, channels.getRecEventId(1) + pan)
+
+    def test_mixer_knob_routes_every_selected_channel_to_the_same_track(self):
+        channels.selected = 1
+        channels.selection = {1, 2, 4}
+        channels.fx_tracks = {1: 2, 2: 6, 4: 0}
+        self.turn("E8", +1)
+        routed = {event_id: value for event_id, value, flags in general.rec_events}
+        self.assertEqual(routed, {channels.getRecEventId(c) + midi.REC_Chan_FXTrack: 3 for c in (1, 2, 4)})
+        self.assertEqual(ui.hints[-1], "Mixer track: 3 Insert 3 (3 channels)")
+
     def test_mixer_knob_routes_one_track_per_step_within_range(self):
         channels.selected = 1
         event_id = channels.getRecEventId(1) + midi.REC_Chan_FXTrack

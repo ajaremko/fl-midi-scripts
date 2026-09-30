@@ -8,6 +8,10 @@ with channels.incEventValue, which works in the event's own units and range, and
 with general.processRECEvent, as Mikey_Maschine does for swing. E3 and E4 are the channel's Mod X
 and Mod Y, whose events keep their old filter names (REC_Chan_FCut, REC_Chan_FRes); FL decides what
 they modulate. E8 steps the mixer track routing one track at a time, as the Fire does.
+
+With several channels selected, the first selected channel steps as usual and the others follow it:
+E1-E7 set them to its new value (so they end up equal), and E8 routes them to its new track. Only
+the first channel's write shows FL's hint.
 """
 
 import channels
@@ -41,8 +45,20 @@ def _selected_channel():
     return channel
 
 
+def _other_selected(primary):
+    """The selected channels besides the first (primary) one."""
+    return [channel for channel in range(channels.channelCount())
+            if channel != primary and channels.isChannelSelected(channel)]
+
+
+# The other selected channels' writes: the value and FL's control, but no hint (the first channel's
+# hint stays up rather than flickering through every channel).
+FOLLOW_FLAGS = midi.REC_UpdateValue | midi.REC_UpdateControl
+
+
 def turn(controller, ev):
-    """E1-E7: step the selected channel's parameter by the turn."""
+    """E1-E7: step the selected channel's parameter by the turn, and set the other selected channels
+    to its new value."""
     if ev.kind != events.TURN:
         return
     channel = _selected_channel()
@@ -52,11 +68,14 @@ def turn(controller, ev):
     event_id = channels.getRecEventId(channel) + offset
     value = channels.incEventValue(event_id, ev.delta, midi.EKRes * scale)
     general.processRECEvent(event_id, value, SET_FLAGS)
+    for other in _other_selected(channel):
+        general.processRECEvent(channels.getRecEventId(other) + offset, value, FOLLOW_FLAGS)
     controller.state.last_event_id = event_id  # for Shift + Sampling (Edit)
 
 
 def mixer_track(controller, ev):
-    """E8: route the selected channel to the next or previous mixer track, one per encoder message."""
+    """E8: route the selected channel to the next or previous mixer track, one per encoder message,
+    and the other selected channels to the same track."""
     if ev.kind != events.TURN:
         return
     channel = _selected_channel()
@@ -65,6 +84,9 @@ def mixer_track(controller, ev):
     # 0 is Master; trackCount() also counts the "Current" utility track, last, which is left out.
     track = channels.getTargetFxTrack(channel) + (1 if ev.delta > 0 else -1)
     track = max(0, min(mixer.trackCount() - 2, track))
-    general.processRECEvent(channels.getRecEventId(channel) + midi.REC_Chan_FXTrack, track,
-                            midi.REC_Control | midi.REC_UpdateControl)
-    ui.setHintMsg("Mixer track: %d %s" % (track, mixer.getTrackName(track)))
+    routed = [channel] + _other_selected(channel)
+    for each in routed:
+        general.processRECEvent(channels.getRecEventId(each) + midi.REC_Chan_FXTrack, track,
+                                midi.REC_Control | midi.REC_UpdateControl)
+    count = " (%d channels)" % len(routed) if len(routed) > 1 else ""
+    ui.setHintMsg("Mixer track: %d %s%s" % (track, mixer.getTrackName(track), count))
