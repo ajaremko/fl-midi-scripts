@@ -45,6 +45,17 @@ Knob page 2 is labelled "Macro 1" … "Macro 8". What each knob controls depends
   4. Reload the script.
   - **Names must match FL's:** case and surrounding spaces don't matter, but a name that isn't found is logged once ("Macro 3: no parameter '…' on …"), and that knob does nothing.
 
+### Presets and Mixer Tracks (F13, F14, F16)
+
+- **F13/F14: previous/next preset** of the selected channel's plugin (not a focused mixer effect, unlike the macros). The hint bar shows the new preset's name once FL reports it, a moment after the press.
+  - **No plugin, no presets:** Sampler, Audio Clip and Layer channels have no plugin, so the hint says "No plugin on this channel". A plugin with no presets gets "No presets".
+- **F16: auto mixer track** does what FL's "Assign selected to free mixer track(s)" (Ctrl+L in the Channel Rack) does, which a script can't call directly.
+  - **What happens:** each selected channel, in order, is routed to the next empty insert track. The track takes the channel's name and colour, and the Mixer scrolls to show it. The hint says "Mixer track 5: Kick", or lists the tracks for several channels.
+  - **Empty track:** no channel routed to it (in any channel group), no effect in any slot, and still its default name ("Insert 5"). Renamed tracks and tracks with effects are passed over.
+  - **Already routed:** a channel already on a track of its own is moved on to the next empty track too, as FL does. Its old track keeps the channel's name, so it stays taken; pressing F16 twice uses up two tracks.
+  - **Running out:** when there aren't enough empty tracks, the channels that got one keep it and the hint says how many didn't.
+  - **Pitfall:** a bus that only receives sends from other tracks, with no effects yet and its default name, looks empty and can be taken. Name your buses (or add their effects) before using F16.
+
 ### Template: relative knobs
 
 E1–E16 must be **relative (two's complement)** in the Controller Editor template, like the master encoder. The repo's [FL Complete.ncm2](NI%20Maschine%20MK2/FL%20Complete.ncm2) is set up that way, with the knob page 1 labels (Volume, Pan, Pitch, Range, Gate, Shift, Swing, Mixer) and page 2 labels (Macro 1 … Macro 8). Open it in Controller Editor and send it to the MK2.
@@ -172,22 +183,22 @@ These are all of the controls present on the hardware with their location, label
 | Top    | Control     | MIDI          | Button  |                                         |                                                     |
 | Top    | Step        | Instance      | Button  |                                         |                                                     |
 | Top    | Browse      |               | Button  | focus browser window; press again to hide (shift mode: open the plugin picker; new mode: open FL's Add menu, to add a channel) | illuminated when browser window is focused          |
-| Top    | F1          |               | Button  | focus channels window; press again to hide                   | illuminated when channels window is focused         |
-| Top    | F2          |               | Button  | focus piano roll window; press again to hide                 | illuminated when piano roll window is focused       |
-| Top    | F3          |               | Button  | focus playlist window; press again to hide                   | illuminated when playlist window is focused         |
-| Top    | F4          |               | Button  | focus mixer window; press again to hide                      | illuminated when mixer window is focused            |
-| Top    | F5          |               | Button  | open the item's context menu in the browser and piano roll, otherwise the focused window's menu |                                                     |
-| Top    | F6          |               | Button  | escape                                  |                                                     |
-| Top    | F7          |               | Button  | toggle new mode | illuminated while new mode is on |
-| Top    | F8          |               | Button  | toggle shift mode                       | illuminated when shift mode is active               |
-| Top    | F9          |               | Button  |                                         |                                                     |
-| Top    | F10         |               | Button  |                                         |                                                     |
-| Top    | F11         |               | Button  |                                         |                                                     |
+| Top    | F1          |               | Button  | Menu: open the focused window's menu |  |
+| Top    | F2          |               | Button  | Esc: escape |  |
+| Top    | F3          |               | Button  | toggle shift mode (see Shift, New and Color Modes) | illuminated while shift mode is on |
+| Top    | F4          |               | Button  | toggle new mode | illuminated while new mode is on |
+| Top    | F5          |               | Button  | Channels: focus the channel rack; press again to hide | illuminated while the channel rack is focused |
+| Top    | F6          |               | Button  | Piano Roll: focus the piano roll; press again to hide | illuminated while the piano roll is focused |
+| Top    | F7          |               | Button  | Playlist: focus the playlist; press again to hide | illuminated while the playlist is focused |
+| Top    | F8          |               | Button  | Mixer: focus the mixer; press again to hide | illuminated while the mixer is focused |
+| Top    | F9          |               | Button  | Alt Menu: open the item's context menu (e.g. a Browser item) | on button page 2 |
+| Top    | F10         |               | Button  | Esc: escape (the same as F2) | on button page 2 |
+| Top    | F11         |               | Button  | toggle shift mode (the same as F3) | illuminated while shift mode is on, with F3; on button page 2 |
 | Top    | F12         |               | Button  | toggle Color mode: the pads pick a colour for the selected channel(s) (see Shift, New and Color Modes) | lit while on; on button page 2 |
-| Top    | F13         |               | Button  |                                         |                                                     |
-| Top    | F14         |               | Button  |                                         |                                                     |
-| Top    | F15         |               | Button  |                                         |                                                     |
-| Top    | F16         |               | Button  |                                         |                                                     |
+| Top    | F13         |               | Button  | previous preset of the selected channel's plugin; the hint shows its name (see Presets and Mixer Tracks) | on button page 2 |
+| Top    | F14         |               | Button  | next preset of the selected channel's plugin; the hint shows its name | on button page 2 |
+| Top    | F15         |               | Button  | toggle fixed velocity (the same as Pad Mode) | illuminated while fixed velocity is on, with Pad Mode; on button page 2 |
+| Top    | F16         |               | Button  | auto mixer track: route each selected channel to the next empty mixer track, named and coloured after the channel, like FL's Ctrl+L (see Presets and Mixer Tracks) | on button page 2 |
 | Top    | Sampling    |               | Button  |                                         |                                                     |
 | Top    | All         | Save          | Button  | save the project (shift mode); save a new version of it (new mode, FL's Save new version) | lit in shift and new mode |
 | Top    | Auto        |               | Button  |                                         |                                                     |
@@ -225,7 +236,7 @@ These are all of the controls present on the hardware with their location, label
 | Transport | Erase       |               | Button  |                                         |                                                     |
 | Pads   | Scene       |               | Button  | switch between pattern and song mode | illuminated in song mode |
 | Pads   | Pattern     |               | Button  | toggle encoder override: the encoder jogs through patterns (new mode: start a new pattern) | illuminated while the override is on |
-| Pads   | Pad Mode    | Keyboard      | Button  | toggle fixed velocity: pads play at full velocity | illuminated while fixed velocity is on |
+| Pads   | Pad Mode    | Keyboard      | Button  | toggle fixed velocity: pads play at full velocity (F15 does the same) | illuminated while fixed velocity is on |
 | Pads   | Navigate    | Mix           | Button  | toggle encoder override: the encoder jogs between open windows | illuminated while the override is on |
 | Pads   | Duplicate   |               | Button  | duplicate (clone) the current pattern   |                                                     |
 | Pads   | Select      | Events        | Button  | shift: open the selected channel's Piano Roll (nothing if no channel is selected) | lit in shift mode |
@@ -256,9 +267,9 @@ These are all of the controls present on the hardware with their location, label
 
 ### Shift, New and Color Modes
 
-F8 toggles shift mode, F7 toggles new mode and F12 toggles color mode. Only one of them is on at a time: turning one on turns the others off. The mode's button stays lit while it is on.
+F3 or F11 toggles shift mode, F4 toggles new mode and F12 toggles color mode. Only one of them is on at a time: turning one on turns the others off. The mode's button stays lit while it is on (both F3 and F11 for shift).
 
-- **Shift mode** gives controls their "(shift mode)" function above, such as Browse (plugin picker), Play (metro), Rec (count-in), All (save), Note Repeat (tap tempo), Restart (loop recording), Select (the Piano Roll) and the pads (undo, redo, quantize, clear, copy, paste, …). It stays on until F8 is pressed again. In shift mode the pads never play notes.
+- **Shift mode** gives controls their "(shift mode)" function above, such as Browse (plugin picker), Play (metro), Rec (count-in), All (save), Note Repeat (tap tempo), Restart (loop recording), Select (the Piano Roll) and the pads (undo, redo, quantize, clear, copy, paste, …). It stays on until F3 or F11 is pressed again. In shift mode the pads never play notes.
 - **New mode** gives controls their "(new mode)" function: Browse opens FL's Add menu to add a channel, Pattern starts a new pattern, and All saves a new version of the project. New mode is one-shot: using a new-mode function turns it off. Controls without a new-mode function keep their normal function, and new mode stays on.
 - **Color mode** turns the pads into a palette of 16 colours: 16 hues round the colour wheel, pad 1 red onwards.
   - **Picking:** pressing a pad gives that colour to every selected Channel Rack channel (all of a push-and-turn selection), and the hint says "Channel colour: 9". With no channel selected, the hint says so.

@@ -32,7 +32,7 @@ from flc_maschine.state import COLOR, NEW, SHIFT  # noqa: E402
 from flc_maschine import controller as controller_module  # noqa: E402
 from flc_maschine.controller import MaschineMk2  # noqa: E402
 from flc_maschine.rendering import colors, renderer  # noqa: E402
-from flc_maschine.handlers import channel_colors, channel_knobs, macro_knobs, note_repeat, pads, transport_controls, ui_commands  # noqa: E402
+from flc_maschine.handlers import channel_colors, channel_knobs, macro_knobs, note_repeat, pads, presets, transport_controls, ui_commands  # noqa: E402
 from flc_maschine.rendering.fl_state import FlSnapshot  # noqa: E402
 
 
@@ -121,6 +121,16 @@ class ScriptTestCase(unittest.TestCase):
         mixer.track_count = 10
         mixer.selected_tracks = set()
         mixer.tempo = 120.0
+        mixer.track_names = {}
+        mixer.track_colors = {}
+        mixer.track_effects = set()
+        mixer.track_number_flags = []
+        channels.global_count = None
+        channels.names = {}
+        plugins.presets = {}
+        plugins.preset_index = {}
+        plugins.preset_calls = []
+        plugins.preset_pending = False
         general.ppq = 96
         general.ppb = 384
         self.log = io.StringIO()
@@ -190,16 +200,16 @@ class ScaffoldTest(ScriptTestCase):
         self.assertEqual(colors.rgb_to_hsb(0x808080), (0, 0, 64))
         self.assertEqual(colors.rgb_to_hsb(-0xFF0100), (42, 127, 127))  # high bits ignored
 
-    def test_f8_toggles_shift_and_its_led(self):
-        f8 = controls.BY_ID["F8"].number
+    def test_f3_toggles_shift_and_its_led(self):
+        f3 = controls.BY_ID["F3"].number
 
-        self.assertTrue(self.send(cc(f8)).handled)
+        self.assertTrue(self.send(cc(f3)).handled)
         self.assertEqual(self.controller.state.mode, SHIFT)
-        self.assertIn((midi.MIDI_CONTROLCHANGE, f8, 127), [unpack(m) for m in device.sent])
+        self.assertIn((midi.MIDI_CONTROLCHANGE, f3, 127), [unpack(m) for m in device.sent])
 
-        self.send(cc(f8))
+        self.send(cc(f3))
         self.assertIsNone(self.controller.state.mode)
-        self.assertIn((midi.MIDI_CONTROLCHANGE, f8, 0), [unpack(m) for m in device.sent])
+        self.assertIn((midi.MIDI_CONTROLCHANGE, f3, 0), [unpack(m) for m in device.sent])
 
     def test_pressed_button_led_is_reasserted(self):
         # A toggle button lights itself on the hardware, so the script resends "off".
@@ -207,8 +217,9 @@ class ScaffoldTest(ScriptTestCase):
         self.send(cc(erase))
         self.assertEqual([unpack(m) for m in device.sent], [(midi.MIDI_CONTROLCHANGE, erase, 0)])
 
-    def test_f5_and_f6_send_menu_and_escape(self):
-        for button, command in (("F5", midi.FPT_Menu), ("F6", midi.FPT_Escape)):
+    def test_f1_f2_f9_f10_send_menu_escape_and_item_menu(self):
+        buttons = (("F1", midi.FPT_Menu), ("F2", midi.FPT_Escape), ("F9", midi.FPT_ItemMenu), ("F10", midi.FPT_Escape))
+        for button, command in buttons:
             with self.subTest(button=button):
                 del transport.calls[:]
                 self.send(cc(controls.BY_ID[button].number))
@@ -216,20 +227,23 @@ class ScaffoldTest(ScriptTestCase):
                 self.assertIsNone(self.controller.state.mode)
                 self.assertFalse(self.controller.leds._sent[button])
 
-    def test_f5_opens_the_item_menu_in_browser_and_piano_roll(self):
-        cases = [
-            (midi.widBrowser, midi.FPT_ItemMenu),
-            (midi.widPianoRoll, midi.FPT_ItemMenu),
-            (midi.widMixer, midi.FPT_Menu),
-            (midi.widChannelRack, midi.FPT_Menu),
-            (midi.widPlaylist, midi.FPT_Menu),
-        ]
-        for window, command in cases:
+    def test_f1_is_the_plain_menu_in_every_window(self):
+        for window in (midi.widBrowser, midi.widPianoRoll, midi.widMixer, midi.widChannelRack, midi.widPlaylist):
             with self.subTest(window=window):
                 ui.focused = window
                 del transport.calls[:]
-                self.send(cc(controls.BY_ID["F5"].number))
-                self.assertEqual(transport.calls, [("globalTransport", command, 1)])
+                self.send(cc(controls.BY_ID["F1"].number))
+                self.assertEqual(transport.calls, [("globalTransport", midi.FPT_Menu, 1)])
+
+    def test_f11_is_a_second_shift_button_and_both_light(self):
+        self.send(cc(controls.BY_ID["F11"].number))
+        self.assertEqual(self.controller.state.mode, SHIFT)
+        self.assertTrue(self.controller.leds._sent["F3"])
+        self.assertTrue(self.controller.leds._sent["F11"])
+        self.send(cc(controls.BY_ID["F3"].number))  # either button turns it off
+        self.assertIsNone(self.controller.state.mode)
+        self.assertFalse(self.controller.leds._sent["F3"])
+        self.assertFalse(self.controller.leds._sent["F11"])
 
     def test_pads_pass_through_to_fl_at_group_d_notes(self):
         pad_1 = controls.BY_ID["PAD_1"].number
@@ -247,6 +261,16 @@ class ScaffoldTest(ScriptTestCase):
         self.assertTrue(self.controller.leds._sent["PAD_MODE"])
         self.send(cc(controls.BY_ID["PAD_MODE"].number))
         self.assertFalse(self.controller.state.fixed_velocity)
+        self.assertFalse(self.controller.leds._sent["PAD_MODE"])
+
+    def test_f15_toggles_fixed_velocity_like_pad_mode(self):
+        self.send(cc(controls.BY_ID["F15"].number))
+        self.assertTrue(self.controller.state.fixed_velocity)
+        self.assertTrue(self.controller.leds._sent["F15"])
+        self.assertTrue(self.controller.leds._sent["PAD_MODE"])
+        self.send(cc(controls.BY_ID["PAD_MODE"].number))  # either button turns it off
+        self.assertFalse(self.controller.state.fixed_velocity)
+        self.assertFalse(self.controller.leds._sent["F15"])
         self.assertFalse(self.controller.leds._sent["PAD_MODE"])
 
     def test_fixed_velocity_plays_pads_at_full_velocity(self):
@@ -288,7 +312,7 @@ class ScaffoldTest(ScriptTestCase):
     def test_aftertouch_follows_the_sounding_note(self):
         pad_1 = controls.BY_ID["PAD_1"].number
         self.send(note_on(pad_1))
-        self.send(cc(controls.BY_ID["F8"].number))  # shift on while the pad is held
+        self.send(cc(controls.BY_ID["F3"].number))  # shift on while the pad is held
         event = self.send(FakeEvent(midi.MIDI_KEYAFTERTOUCH, pad_1, 90))
         self.assertFalse(event.handled)
         self.assertEqual(event.data1, 48)
@@ -302,7 +326,7 @@ class ScaffoldTest(ScriptTestCase):
     def test_release_goes_to_the_handler_that_took_the_press(self):
         pad = controls.BY_ID["PAD_1"].number
         self.send(note_on(pad))
-        self.send(cc(controls.BY_ID["F8"].number))  # shift on while the pad is held
+        self.send(cc(controls.BY_ID["F3"].number))  # shift on while the pad is held
         self.assertFalse(self.send(note_off(pad)).handled)  # note-off still reaches FL
 
     def test_unimplemented_controls_log(self):
@@ -364,10 +388,10 @@ class ScaffoldTest(ScriptTestCase):
         self.assertEqual(device.sent, [])
 
     def test_deinit_turns_lit_leds_off(self):
-        self.send(cc(controls.BY_ID["F8"].number))
+        self.send(cc(controls.BY_ID["F3"].number))
         lit = {control_id for control_id, value in self.controller.leds._sent.items()
                if value not in (False, colors.OFF)}
-        self.assertIn("F8", lit)
+        self.assertIn("F3", lit)
         self.assertIn("PAD_1", lit)
         device.reset()
         script.OnDeInit()
@@ -378,10 +402,10 @@ class ScaffoldTest(ScriptTestCase):
 
 WINDOW_BUTTONS = {
     "BROWSE": midi.widBrowser,
-    "F1": midi.widChannelRack,
-    "F2": midi.widPianoRoll,
-    "F3": midi.widPlaylist,
-    "F4": midi.widMixer,
+    "F5": midi.widChannelRack,
+    "F6": midi.widPianoRoll,
+    "F7": midi.widPlaylist,
+    "F8": midi.widMixer,
 }
 
 
@@ -678,7 +702,7 @@ class BridgeModeTest(ScriptTestCase):
         self.assertEqual(bridge_ccs(), [])
 
     def test_modes_tell_the_bridge_the_pads_are_not_notes(self):
-        for button in ("F8", "F7", "F12"):
+        for button in ("F3", "F4", "F12"):
             with self.subTest(button=button):
                 self.send(cc(controls.BY_ID[button].number))
                 self.assertEqual(bridge_ccs(), [(5, 0)])
@@ -1077,12 +1101,12 @@ class ColorModeTest(ScriptTestCase):
 
     def test_color_shift_and_new_replace_each_other(self):
         self.press("F12")
-        self.press("F8")
+        self.press("F3")
         self.assertEqual(self.controller.state.mode, SHIFT)
         self.assertFalse(self.led("F12"))
         self.press("F12", 0)
         self.assertEqual(self.controller.state.mode, COLOR)
-        self.press("F7")
+        self.press("F4")
         self.assertEqual(self.controller.state.mode, NEW)
 
     def test_entering_color_mode_clears_an_encoder_override(self):
@@ -1137,13 +1161,13 @@ class WindowButtonsTest(ScriptTestCase):
         return [button for button in WINDOW_BUTTONS if self.controller.leds._sent[button]]
 
     def test_press_focuses_and_press_again_hides(self):
-        f1 = controls.BY_ID["F1"].number
-        self.send(cc(f1))
+        f5 = controls.BY_ID["F5"].number
+        self.send(cc(f5))
         self.assertEqual(ui.focused, midi.widChannelRack)
-        self.assertEqual([unpack(m) for m in device.sent], [(midi.MIDI_CONTROLCHANGE, f1, 127)])
-        self.send(cc(f1))
+        self.assertEqual([unpack(m) for m in device.sent], [(midi.MIDI_CONTROLCHANGE, f5, 127)])
+        self.send(cc(f5))
         self.assertIsNone(ui.focused)
-        self.assertEqual([unpack(m) for m in device.sent], [(midi.MIDI_CONTROLCHANGE, f1, 0)])
+        self.assertEqual([unpack(m) for m in device.sent], [(midi.MIDI_CONTROLCHANGE, f5, 0)])
 
     def test_each_button_focuses_its_window_and_lights_alone(self):
         for button, window in WINDOW_BUTTONS.items():
@@ -1153,15 +1177,15 @@ class WindowButtonsTest(ScriptTestCase):
                 self.assertEqual(self.lit_window_buttons(), [button])
 
     def test_focus_changed_elsewhere_moves_the_light(self):
-        self.send(cc(controls.BY_ID["F1"].number))
+        self.send(cc(controls.BY_ID["F5"].number))
         ui.focused = midi.widMixer  # e.g. clicked with the mouse
         self.refresh()
-        self.assertEqual(self.lit_window_buttons(), ["F4"])
+        self.assertEqual(self.lit_window_buttons(), ["F8"])
 
-    def test_f1_to_f4_work_the_same_with_shift_on(self):
-        # BROWSE has a shift function (plugin picker); F1-F4 don't, so they fall back to base.
+    def test_f5_to_f8_work_the_same_with_shift_on(self):
+        # BROWSE has a shift function (plugin picker); F5-F8 don't, so they fall back to base.
         self.controller.state.mode = SHIFT
-        self.send(cc(controls.BY_ID["F1"].number))
+        self.send(cc(controls.BY_ID["F5"].number))
         self.assertEqual(ui.focused, midi.widChannelRack)
 
 
@@ -1327,7 +1351,7 @@ class EncoderTest(ScriptTestCase):
                 self.press(button)  # off again
 
     def test_entering_shift_or_new_clears_the_override(self):
-        for mode_button in ("F8", "F7"):
+        for mode_button in ("F3", "F4"):
             with self.subTest(mode_button=mode_button):
                 self.press("VOLUME")
                 self.press(mode_button)
@@ -1410,7 +1434,7 @@ class EncoderTest(ScriptTestCase):
 
 class ShiftModeTest(ScriptTestCase):
     def shift(self):
-        self.send(cc(controls.BY_ID["F8"].number))
+        self.send(cc(controls.BY_ID["F3"].number))
 
     def led(self, control_id):
         return self.controller.leds._sent[control_id]
@@ -1418,13 +1442,13 @@ class ShiftModeTest(ScriptTestCase):
     def test_shift_lights_only_controls_with_a_shift_function(self):
         ui.focused = midi.widChannelRack
         self.send(cc(controls.BY_ID["VOLUME"].number))  # override on
-        self.assertTrue(self.led("F1"))
+        self.assertTrue(self.led("F5"))
         self.assertTrue(self.led("VOLUME"))
         self.shift()
-        for control_id in ("F8", "BROWSE", "PLAY", "REC", "ALL", "NOTE_REPEAT", "RESTART", "SELECT"):
+        for control_id in ("F3", "BROWSE", "PLAY", "REC", "ALL", "NOTE_REPEAT", "RESTART", "SELECT"):
             self.assertTrue(self.led(control_id), control_id)
         # Controls without a shift function (or with only a placeholder) aren't highlighted.
-        for control_id in ("F1", "MUTE", "VOLUME", "F5", "ERASE"):
+        for control_id in ("F5", "MUTE", "VOLUME", "F1", "ERASE"):
             self.assertFalse(self.led(control_id), control_id)
 
     def test_shift_browse_opens_plugin_picker(self):
@@ -1450,9 +1474,9 @@ class ShiftModeTest(ScriptTestCase):
         self.send(cc(controls.BY_ID["VOLUME"].number))
         self.shift()
         self.shift()
-        self.assertTrue(self.led("F1"))
+        self.assertTrue(self.led("F5"))
         self.assertFalse(self.led("VOLUME"))  # entering shift turned the override off
-        self.assertFalse(self.led("F8"))
+        self.assertFalse(self.led("F3"))
         self.assertEqual(self.led("GROUP_D"), RED)
 
     def test_shift_lights_pads_that_are_dark_in_fpc_mode(self):
@@ -1501,6 +1525,142 @@ class ShiftModeTest(ScriptTestCase):
         self.assertTrue(bindings.MODE_CONTROLS[SHIFT] <= frozenset(bindings.LAYERS[SHIFT]))
 
 
+class MixerTrackTest(ScriptTestCase):
+    """F16: route the selected channel(s) to empty mixer tracks, named and coloured after them."""
+
+    def press(self):
+        return self.send(cc(controls.BY_ID["F16"].number))
+
+    def route(self, channel):
+        return channels.getTargetFxTrack(channel)
+
+    def test_routes_to_the_first_empty_track_and_copies_name_and_colour(self):
+        channels.selection = {2}
+        channels.names = {2: "Kick"}
+        channels.colors = {2: 0x123456}
+        channels.fx_tracks = {0: 1, 1: 2}  # tracks 1 and 2 have channels
+        self.assertTrue(self.press().handled)
+        self.assertEqual(self.route(2), 3)
+        self.assertEqual(mixer.getTrackName(3), "Kick")
+        self.assertEqual(mixer.track_colors, {3: 0x123456})
+        self.assertEqual(mixer.track_number_flags, [(3, midi.curfxScrollToMakeVisible)])
+        self.assertEqual(ui.hints[-1], "Mixer track 3: Kick")
+
+    def test_skips_tracks_with_effects_or_a_name(self):
+        channels.selection = {0}
+        mixer.track_effects = {(1, 9)}  # an effect in the last slot
+        mixer.track_names = {2: "Reverb bus"}
+        self.press()
+        self.assertEqual(self.route(0), 3)
+
+    def test_each_selected_channel_gets_its_own_track(self):
+        channels.selection = {1, 3, 4}
+        channels.fx_tracks = {0: 2}
+        self.press()
+        self.assertEqual([self.route(c) for c in (1, 3, 4)], [1, 3, 4])
+        self.assertEqual([mixer.getTrackName(t) for t in (1, 3, 4)], ["Channel 2", "Channel 4", "Channel 5"])
+        self.assertEqual(ui.hints[-1], "Mixer tracks 1, 3, 4")
+
+    def test_a_channel_on_its_own_track_moves_on(self):
+        # As FL does. Its old track keeps the channel's name, so a second press moves on again.
+        channels.selection = {0}
+        self.press()
+        self.assertEqual(self.route(0), 1)
+        self.press()
+        self.assertEqual(self.route(0), 2)
+
+    def test_channels_in_other_groups_keep_their_tracks(self):
+        channels.selection = {0}
+        channels.global_count = 10
+        channels.fx_tracks = {9: 1}  # a channel outside the current group
+        self.press()
+        self.assertEqual(self.route(0), 2)
+
+    def test_never_uses_the_current_track(self):
+        # Inserts 1-8 all taken: track 9 is the "Current" utility track (trackCount() - 1).
+        channels.selection = {0}
+        channels.fx_tracks = {c: c + 1 for c in range(1, 8)}
+        channels.global_count = 9
+        channels.fx_tracks[8] = 1
+        self.press()
+        self.assertEqual(self.route(0), 0)
+        self.assertEqual(ui.hints[-1], "No empty mixer track")
+        self.assertEqual(mixer.track_names, {})
+
+    def test_assigns_what_it_can_when_tracks_run_out(self):
+        channels.selection = {0, 1}
+        channels.fx_tracks = {c: c - 1 for c in range(2, 8)}  # tracks 1-6 taken; 7 and 8 empty
+        mixer.track_names = {8: "Drums"}
+        self.press()
+        self.assertEqual((self.route(0), self.route(1)), (7, 0))
+        self.assertEqual(ui.hints[-1], "No empty mixer track for 1 of 2 channels")
+
+    def test_no_selection(self):
+        self.press()
+        self.assertEqual(ui.hints, ["No channel selected"])
+        self.assertEqual(general.rec_events, [])
+
+
+class PresetTest(ScriptTestCase):
+    """F13/F14: previous and next preset of the selected channel's plugin."""
+
+    def press(self, button):
+        self.send(cc(controls.BY_ID[button].number))
+
+    def setUp(self):
+        super().setUp()
+        channels.selected = 1
+        plugins.names = {1: "FLEX"}
+        plugins.presets = {1: ["Init", "Bass", "Pad"]}
+
+    def test_f14_and_f13_step_the_selected_channels_presets(self):
+        self.press("F14")
+        self.press("F13")
+        self.press("F13")
+        self.assertEqual(plugins.preset_calls, [("next", 1), ("prev", 1), ("prev", 1)])
+        self.assertEqual(plugins.preset_index[1], 2)
+
+    def test_name_hint_waits_for_fl_to_report_the_new_preset(self):
+        self.press("F14")  # send() runs one OnIdle, while the name still reads ""
+        self.assertEqual(ui.hints, [])
+        script.OnIdle()
+        self.assertEqual(ui.hints, [])
+        plugins.settle()
+        script.OnIdle()
+        self.assertEqual(ui.hints, ["Preset: Bass"])
+        script.OnIdle()
+        self.assertEqual(ui.hints, ["Preset: Bass"])  # shown once
+
+    def test_name_hint_appears_anyway_after_the_wait(self):
+        plugins.presets = {1: ["Only"]}  # stepping keeps the same name
+        self.press("F14")
+        plugins.settle()
+        for _ in range(presets.PRESET_WAIT_TICKS):
+            script.OnIdle()
+        self.assertEqual(ui.hints, ["Preset: Only"])
+
+    def test_hints_when_there_is_nothing_to_step(self):
+        cases = [
+            (-1, {}, {}, "No channel selected"),
+            (2, {}, {}, "No plugin on this channel"),  # e.g. a Sampler
+            (2, {2: "Fruity Kick"}, {}, "No presets"),
+        ]
+        for selected, names, preset_lists, hint in cases:
+            with self.subTest(hint=hint):
+                channels.selected, plugins.names, plugins.presets = selected, names, preset_lists
+                ui.hints = []
+                self.press("F14")
+                self.assertEqual(ui.hints, [hint])
+        self.assertEqual(plugins.preset_calls, [])
+
+    def test_buttons_stay_dark(self):
+        for button in ("F13", "F14", "F16"):
+            with self.subTest(button=button):
+                self.press(button)
+                self.assertFalse(self.controller.leds._sent[button])
+                self.assertNotIn("unimplemented: " + button, self.log.getvalue())
+
+
 class DuplicateTest(ScriptTestCase):
     def press(self):
         return self.send(cc(controls.BY_ID["DUPLICATE"].number))
@@ -1525,25 +1685,25 @@ class NewModeTest(ScriptTestCase):
     def led(self, control_id):
         return self.controller.leds._sent[control_id]
 
-    def test_f7_toggles_new_mode_and_its_led(self):
-        self.press("F7")
+    def test_f4_toggles_new_mode_and_its_led(self):
+        self.press("F4")
         self.assertEqual(self.controller.state.mode, NEW)
-        self.assertTrue(self.led("F7"))
-        self.press("F7")
+        self.assertTrue(self.led("F4"))
+        self.press("F4")
         self.assertIsNone(self.controller.state.mode)
-        self.assertFalse(self.led("F7"))
+        self.assertFalse(self.led("F4"))
 
     def test_new_and_shift_replace_each_other(self):
-        self.press("F7")
-        self.press("F8")
+        self.press("F4")
+        self.press("F3")
         self.assertEqual(self.controller.state.mode, SHIFT)
-        self.assertFalse(self.led("F7"))
-        self.press("F7")
+        self.assertFalse(self.led("F4"))
+        self.press("F4")
         self.assertEqual(self.controller.state.mode, NEW)
-        self.assertFalse(self.led("F8"))
+        self.assertFalse(self.led("F3"))
 
     def test_new_browse_opens_the_add_menu(self):
-        self.press("F7")
+        self.press("F4")
         self.press("BROWSE")
         self.assertEqual(transport.calls, [("globalTransport", midi.FPT_Menu, 1)])
         self.assertIsNone(self.controller.state.mode)
@@ -1554,7 +1714,7 @@ class NewModeTest(ScriptTestCase):
         self.assertEqual(transport.calls, [("globalTransport", midi.FPT_Right, 1)] * 3)
 
     def test_queued_menu_commands_wait_for_the_menu_and_then_give_up(self):
-        self.press("F7")
+        self.press("F4")
         self.press("BROWSE")
         del transport.calls[:]
         for _ in range(ui_commands.MENU_WAIT_TICKS):
@@ -1565,28 +1725,28 @@ class NewModeTest(ScriptTestCase):
         self.assertEqual(transport.calls, [])  # queue dropped: the menu never opened in time
 
     def test_new_pattern_starts_a_new_pattern_once(self):
-        self.press("F7")
+        self.press("F4")
         self.press("PATTERN")
         self.assertEqual(patterns.calls, [("findFirstNextEmptyPat", midi.FFNEP_DontPromptName)])
         self.assertIsNone(self.controller.state.mode)
 
     def test_controls_without_a_new_function_act_normally_and_keep_new_mode(self):
-        self.press("F7")
+        self.press("F4")
         self.press("PLAY")
         self.assertEqual(transport.calls, [("start",)])
         self.assertEqual(self.controller.state.mode, NEW)
 
     def test_new_mode_lights(self):
-        self.press("F7")
-        for control_id in ("F7", "BROWSE", "PATTERN", "ALL"):
+        self.press("F4")
+        for control_id in ("F4", "BROWSE", "PATTERN", "ALL"):
             self.assertTrue(self.led(control_id), control_id)
-        for control_id in ("F8", "F1", "PLAY", "RESTART"):
+        for control_id in ("F3", "F5", "PLAY", "RESTART"):
             self.assertFalse(self.led(control_id), control_id)
         for control_id in PAD_IDS + GROUP_IDS:
             self.assertEqual(self.led(control_id), colors.OFF, control_id)
 
     def test_new_all_saves_a_new_version_once(self):
-        self.press("F7")
+        self.press("F4")
         self.press("ALL")
         self.assertEqual(transport.calls, [("globalTransport", midi.FPT_SaveNew, 1)])
         self.assertIsNone(self.controller.state.mode)
@@ -1675,7 +1835,7 @@ class RenderSchedulingTest(ScriptTestCase):
         device.reset()
         plugins.names = None  # any plugin read would raise
         channels.colors[0] = 0x00FF00
-        script.OnMidiMsg(cc(controls.BY_ID["F8"].number))
+        script.OnMidiMsg(cc(controls.BY_ID["F3"].number))
         script.OnRefresh(0)
         self.assertEqual(device.sent, [])
         self.assertTrue(self.controller.dirty)
@@ -1687,7 +1847,7 @@ class RenderSchedulingTest(ScriptTestCase):
     def test_many_events_render_once_per_idle(self):
         renders = self.count_renders()
         for _ in range(5):
-            script.OnMidiMsg(cc(controls.BY_ID["F1"].number))
+            script.OnMidiMsg(cc(controls.BY_ID["F5"].number))
             script.OnRefresh(0x100)
         script.OnIdle()
         script.OnIdle()  # nothing new: no render

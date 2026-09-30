@@ -119,7 +119,7 @@ Bank B's **notes** and **empty** flags come back correctly from `plugins.getPadI
 
 **Maximum range.** When a step goes past the channel's pitch range (FL's default is ±2 semitones), the script widens the range to 12, 24, 36 or 48 semitones, and stops the pitch at ±48 (`MAX_PITCH_RANGE`). That 48 is a guess at FL's maximum range. If FL caps the range lower, the knob will stop short of the hint's value. Lower `PITCH_RANGE_STEPS` to match.
 
-**Checking in FL Studio.** Select a channel and turn shift mode on (F8). Pad 13 should move the channel's pitch knob to +100 cents. Pad 16 should set the range in the channel's settings to 12 and the knob to +13 semitones. Keep pressing Pad 16 up to +48 and compare the knob with the hint.
+**Checking in FL Studio.** Select a channel and turn shift mode on (F3). Pad 13 should move the channel's pitch knob to +100 cents. Pad 16 should set the range in the channel's settings to 12 and the knob to +13 semitones. Keep pressing Pad 16 up to +48 and compare the knob with the hint.
 
 ## MK2 bridge: a feedback loop through loopMIDI makes the MK2 run wild (guarded)
 

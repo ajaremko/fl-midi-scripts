@@ -3,7 +3,7 @@ import general
 import ui
 
 from . import bridge_link, diagnostics, dispatcher, events, feedback, log
-from .handlers import pads, ui_commands
+from .handlers import pads, presets, ui_commands
 from .rendering import renderer
 from .rendering.fl_state import FlSnapshot
 from .rendering.output import LedWriter
@@ -113,6 +113,7 @@ class MaschineMk2:
                 self.idles = 0
                 self.dirty = True
         ui_commands.run_menu_commands(self.state)
+        presets.show_preset_name(self.state)
         self._render_if_due()
         diagnostics.tick(self)
 

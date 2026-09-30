@@ -83,3 +83,6 @@ CT_Sampler = 0
 CT_GenPlug = 2
 CT_Layer = 3
 CT_AudioClip = 4
+
+FPN_Preset = 6  # plugins.getName flag
+curfxScrollToMakeVisible = 1  # mixer.setTrackNumber flag

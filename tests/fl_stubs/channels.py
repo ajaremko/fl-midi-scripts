@@ -9,7 +9,9 @@ pitch_range = {}  # channel index -> pitch range in semitones (default 2, FL's d
 pitch_calls = []  # (index, value, pitchUnit) passed to setChannelPitch
 muted = set()  # muted channel indexes
 soloed = None  # the soloed channel index, or None
-count = 8  # channelCount()
+count = 8  # channelCount(): the current group's channels, global indexes 0 to count - 1
+global_count = None  # channelCount(1), when other groups add channels after them; None: count
+names = {}  # channel index -> name (default "Channel N")
 selection = set()  # channel indexes selected by select/selectOneChannel (separate from `selected`)
 
 
@@ -19,7 +21,7 @@ def selectedChannel(canBeNone=0, offset=0, indexGlobal=0):
     return selected
 
 
-def getChannelColor(index):
+def getChannelColor(index, useGlobalIndex=False):
     return colors.get(index, 0)
 
 
@@ -66,7 +68,11 @@ def isChannelSolo(index, useGlobalIndex=False):
 
 
 def channelCount(globalCount=0):
-    return count
+    return global_count if globalCount and global_count is not None else count
+
+
+def getChannelName(index, useGlobalIndex=False):
+    return names.get(index, "Channel %d" % (index + 1))
 
 
 def selectOneChannel(index, useGlobalIndex=False):

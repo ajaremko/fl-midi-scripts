@@ -59,6 +59,9 @@ class ControllerState:
         # keep waiting. See handlers/ui_commands.open_menu_then.
         self.menu_commands = []
         self.menu_wait = 0
+        # After F13/F14: (channel, old preset name, OnIdle ticks left) until the new name is shown.
+        # See handlers/presets.show_preset_name.
+        self.preset_hint = None
 
     def active_layers(self):
         """Binding layers to search, highest priority first."""

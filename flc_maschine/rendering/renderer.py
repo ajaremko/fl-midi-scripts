@@ -62,10 +62,10 @@ def _channel_color(state, fl, frame):
 # The button that focuses each window, lit while that window is focused.
 WINDOW_BUTTONS = {
     midi.widBrowser: "BROWSE",
-    midi.widChannelRack: "F1",
-    midi.widPianoRoll: "F2",
-    midi.widPlaylist: "F3",
-    midi.widMixer: "F4",
+    midi.widChannelRack: "F5",
+    midi.widPianoRoll: "F6",
+    midi.widPlaylist: "F7",
+    midi.widMixer: "F8",
 }
 
 
@@ -89,6 +89,7 @@ def _channel_state(state, fl, frame):
 
 def _pad_mode(state, fl, frame):
     frame["PAD_MODE"] = state.fixed_velocity
+    frame["F15"] = state.fixed_velocity  # the same toggle, on button page 2
     frame["NOTE_REPEAT"] = bool(state.note_repeat)  # lit in On and Triplets; only ever on in bridge mode
 
 
@@ -99,7 +100,7 @@ def _encoder_mode(state, fl, frame):
 
 
 # The button that toggles each global mode, lit while that mode is on.
-MODE_BUTTONS = {SHIFT: "F8", NEW: "F7", COLOR: "F12"}
+MODE_BUTTONS = {SHIFT: ("F3", "F11"), NEW: ("F4",), COLOR: ("F12",)}  # all lit while the mode is on
 
 
 # The colour of each highlighted RGB control in a mode, grouped by function. Controls not listed
@@ -145,7 +146,7 @@ def _mode_highlight(state, fl, frame):
     mode_colors = _color_mode_pads(fl) if state.mode == COLOR else MODE_COLORS.get(state.mode, {})
     lit_hsb = colors.with_brightness(_channel_hsb(fl), LIT_BRIGHTNESS)
     for control in controls.LED_CONTROLS:
-        shown = control.id == MODE_BUTTONS[state.mode] or control.id in mode_controls
+        shown = control.id in MODE_BUTTONS[state.mode] or control.id in mode_controls
         if control.led == controls.HSB:
             if not shown:
                 frame[control.id] = colors.OFF

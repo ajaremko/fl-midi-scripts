@@ -18,6 +18,7 @@ from .handlers import (
     channel_controls,
     channel_knobs,
     macro_knobs,
+    mixer_tracks,
     edit,
     encoder,
     groups,
@@ -25,6 +26,7 @@ from .handlers import (
     note_repeat,
     pads,
     pattern_controls,
+    presets,
     transport_controls,
     ui_commands,
     windows,
@@ -39,20 +41,24 @@ _base = {
     "SAMPLING": unimplemented(),
     "ALL": unimplemented(),
     "AUTO": unimplemented(),
-    "F1": windows.toggle(midi.widChannelRack),
-    "F2": windows.toggle(midi.widPianoRoll),
-    "F3": windows.toggle(midi.widPlaylist),
-    "F4": windows.toggle(midi.widMixer),
-    "F5": ui_commands.send_for_focus(
-        midi.FPT_Menu,
-        {
-            midi.widBrowser: midi.FPT_ItemMenu,
-            midi.widPianoRoll: midi.FPT_ItemMenu,
-        },
-    ),
-    "F6": ui_commands.send(midi.FPT_Escape),
-    "F7": modes.toggle(NEW),
-    "F8": modes.toggle(SHIFT),
+    # Function buttons, page 1
+    "F1": ui_commands.send(midi.FPT_Menu),  # Menu
+    "F2": ui_commands.send(midi.FPT_Escape),  # Esc
+    "F3": modes.toggle(SHIFT),  # Shift
+    "F4": modes.toggle(NEW),  # New
+    "F5": windows.toggle(midi.widChannelRack),  # Channels
+    "F6": windows.toggle(midi.widPianoRoll),  # Piano Roll
+    "F7": windows.toggle(midi.widPlaylist),  # Playlist
+    "F8": windows.toggle(midi.widMixer),  # Mixer
+    # Function buttons, page 2
+    "F9": ui_commands.send(midi.FPT_ItemMenu),  # Alt Menu
+    "F10": ui_commands.send(midi.FPT_Escape),  # Esc (again)
+    "F11": modes.toggle(SHIFT),  # Shift (again)
+    "F12": modes.toggle(COLOR),  # Color
+    "F13": presets.step(-1),  # Previous preset
+    "F14": presets.step(+1),  # Next preset
+    "F15": pads.toggle_fixed_velocity,  # Fixed velocity (as Pad Mode)
+    "F16": mixer_tracks.assign_free_track,  # Auto mixer track
     # Master
     "VOLUME": encoder.toggle_mode("VOLUME"),
     "SWING": encoder.toggle_mode("SWING"),
@@ -81,11 +87,6 @@ _base = {
     "SOLO": channel_controls.solo,
     "MUTE": channel_controls.mute,
 }
-
-# F9-F16 (button page 2): F12 toggles Color mode; the rest have no function yet.
-for _i in range(9, 17):
-    _base["F%d" % _i] = unimplemented()
-_base["F12"] = modes.toggle(COLOR)
 
 # E1-E8: the selected channel's settings. E9-E16 (knob page 2): macros for the focused plugin.
 for _i in (1, 2, 3, 5, 6, 7):

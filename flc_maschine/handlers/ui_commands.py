@@ -1,6 +1,6 @@
 """
-Buttons that press a single FL Studio key or command, such as Menu (F5) and Esc (F6), optionally
-choosing the command by the focused window, or that open a menu and then step through it.
+Buttons that press a single FL Studio key or command, such as Menu (F1), Esc (F2) and Alt Menu (F9),
+or that open a menu and then step through it.
 """
 
 import channels
@@ -37,21 +37,6 @@ def enter(controller, ev):
             channels.showCSForm(channel, 1)  # 1: open (-1 would toggle)
         return
     transport.globalTransport(midi.FPT_Enter, 1)
-
-
-def send_for_focus(default, by_window):
-    """Like send, but by_window ({window: command}) overrides default while that window is focused."""
-
-    @on_press
-    def handler(controller, ev):
-        command = default
-        for window, window_command in by_window.items():
-            if ui.getFocused(window):
-                command = window_command
-                break
-        transport.globalTransport(command, 1)
-
-    return handler
 
 
 # How many OnIdle ticks to wait for a menu to open before dropping its queued commands, so they

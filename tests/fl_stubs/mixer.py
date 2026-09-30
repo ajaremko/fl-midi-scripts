@@ -57,8 +57,32 @@ def getCurrentTempo(asInt=0):
     return tempo
 
 
-def getTrackName(index):
-    return "Master" if index == 0 else "Insert %d" % index
+track_names = {}  # track index -> name set by setTrackName (default "Master" / "Insert N")
+track_colors = {}  # track index -> colour set by setTrackColor
+track_effects = set()  # (track, slot) with a valid effect plugin
+track_number_flags = []  # (index, flags) passed to setTrackNumber
+
+
+def getTrackName(index, maxLen=-1):
+    return track_names.get(index, "Master" if index == 0 else "Insert %d" % index)
+
+
+def setTrackName(index, name):
+    track_names[index] = name
+
+
+def setTrackColor(index, color):
+    track_colors[index] = color
+
+
+def isTrackPluginValid(index, plugIndex):
+    return 1 if (index, plugIndex) in track_effects else 0
+
+
+def setTrackNumber(index, flags=-1):
+    global track_number
+    track_number = index
+    track_number_flags.append((index, flags))
 
 
 active_effect = None  # (track, slot) of the focused effect editor, or None
