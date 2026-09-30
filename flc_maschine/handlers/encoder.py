@@ -20,7 +20,7 @@ import transport
 import ui
 
 from .. import events
-from . import note_repeat, pad_modes, selection
+from . import channel_pads, note_repeat, pad_modes, selection
 from .common import on_press
 
 VOLUME_STEP = 0.05  # master volume, 0-1, per encoder step
@@ -59,7 +59,7 @@ MODES = {
     "NAVIGATE": _jog(midi.FPT_WindowJog),  # between open windows
     "PATTERN": _jog(midi.FPT_PatternJog),  # through patterns
     "GRID": _jog(midi.FPT_SnapMode),  # through main snap settings
-    "PAD_MODE": pad_modes.step,  # Default, Keyboard, Sequencer
+    "PAD_MODE": pad_modes.step,  # Channels, Pads, Keyboard, Sequencer, Mixer
 }
 
 
@@ -140,10 +140,12 @@ def turn(controller, ev):
         if selection.drag(state, ev.delta):  # takes priority over overrides and navigation
             return
     adjust = MODES.get(state.encoder_mode)
-    if adjust is None:
-        _navigate(ev.delta)
-    else:
+    if adjust is not None:
         adjust(state, ev.delta)
+    elif channel_pads.scrolls(state):
+        channel_pads.scroll(state, ev.delta)  # Channels mode in the Channel Rack: move the pads' focus
+    else:
+        _navigate(ev.delta)
 
 
 def push(controller, ev):

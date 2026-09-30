@@ -12,7 +12,9 @@ import ui
 
 from .. import fpc
 from ..handlers.sequencer import STEPS_PER_PAGE
-from ..state import DEFAULT_PADS, SEQUENCER
+from ..state import CHANNELS, PADS, SEQUENCER
+
+PADS_COUNT = 16  # pads, for Channels mode's focused channels
 
 # Windows whose focus the renderer may show, checked in this order.
 WINDOWS = (midi.widMixer, midi.widChannelRack, midi.widPlaylist, midi.widPianoRoll, midi.widBrowser)
@@ -21,12 +23,13 @@ WINDOWS = (midi.widMixer, midi.widChannelRack, midi.widPlaylist, midi.widPianoRo
 class FlSnapshot:
     __slots__ = ("focused_window", "playing", "recording", "song_mode", "channel_color", "channel_solo",
                  "channel_muted", "fpc_channel", "fpc_banks", "tempo", "step_channel", "grid_assigned",
-                 "steps", "step_pos", "pattern_steps")
+                 "steps", "step_pos", "pattern_steps", "channel_count", "rack_colors", "rack_selected")
 
     def __init__(self, focused_window=None, playing=False, recording=False, song_mode=False,
                  channel_color=None, channel_solo=False, channel_muted=False, fpc_channel=None,
                  fpc_banks=None, tempo=120.0, step_channel=None, grid_assigned=False,
-                 steps=(False,) * STEPS_PER_PAGE, step_pos=-1, pattern_steps=0):
+                 steps=(False,) * STEPS_PER_PAGE, step_pos=-1, pattern_steps=0, channel_count=0,
+                 rack_colors=(None,) * PADS_COUNT, rack_selected=(False,) * PADS_COUNT):
         self.focused_window = focused_window  # one of WINDOWS, or None
         self.playing = playing
         self.recording = recording
@@ -45,18 +48,25 @@ class FlSnapshot:
         self.steps = steps
         self.step_pos = step_pos
         self.pattern_steps = pattern_steps
+        # Channels pad mode only (read when it's on): the Channel Rack's channel count (current group)
+        # and, for the 16 channels from the focus, each one's colour (0xRRGGBB, None past the last
+        # channel) and whether it is selected.
+        self.channel_count = channel_count
+        self.rack_colors = rack_colors
+        self.rack_selected = rack_selected
 
     @classmethod
-    def read(cls, pad_mode=DEFAULT_PADS, step_page=0):
-        """Read FL's state. FPC's pads are only read in Default pad mode, the only one that uses
-        them, and the step sequencer only in Sequencer mode: its playhead makes a render per step."""
+    def read(cls, pad_mode=PADS, step_page=0, channel_offset=0):
+        """Read FL's state. FPC's pads are only read in Pads mode, the only one that uses them, the
+        step sequencer only in Sequencer mode (its playhead makes a render per step), and the
+        focused channels only in Channels mode."""
         focused = None
         for window in WINDOWS:
             if ui.getFocused(window):
                 focused = window
                 break
         channel = channels.selectedChannel(1)  # -1 when no channel is selected
-        fpc_channel = fpc.selected_fpc_channel() if pad_mode == DEFAULT_PADS else None
+        fpc_channel = fpc.selected_fpc_channel() if pad_mode == PADS else None
         snapshot = cls(
             focused_window=focused,
             playing=bool(transport.isPlaying()),
@@ -71,7 +81,15 @@ class FlSnapshot:
         )
         if pad_mode == SEQUENCER:
             snapshot._read_steps(channel, step_page)
+        elif pad_mode == CHANNELS:
+            snapshot._read_rack(channel_offset)
         return snapshot
+
+    def _read_rack(self, channel_offset):
+        self.channel_count = count = channels.channelCount()
+        shown = range(channel_offset, channel_offset + PADS_COUNT)
+        self.rack_colors = tuple(channels.getChannelColor(i) & 0xFFFFFF if i < count else None for i in shown)
+        self.rack_selected = tuple(i < count and bool(channels.isChannelSelected(i)) for i in shown)
 
     def _read_steps(self, channel, step_page):
         self.step_pos = mixer.getSongStepPos()

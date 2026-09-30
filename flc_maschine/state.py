@@ -12,10 +12,12 @@ COLOR = "color"
 
 # Pad modes (handlers/pad_modes.py), chosen with the Pad Mode encoder override. Each is also the
 # name of its binding layer.
-DEFAULT_PADS = "default"
+CHANNELS = "channels"
+PADS = "pads"
 KEYBOARD = "keyboard"
 SEQUENCER = "sequencer"
-PAD_MODES = (DEFAULT_PADS, KEYBOARD, SEQUENCER)  # in encoder order
+MIXER = "mixer"
+PAD_MODES = (CHANNELS, PADS, KEYBOARD, SEQUENCER, MIXER)  # in encoder order; PADS is the startup mode
 
 
 class ControllerState:
@@ -47,14 +49,21 @@ class ControllerState:
         self.sounding = {}
         # Toggled by F15. While on, pads play at pads.FIXED_VELOCITY however hard they're hit.
         self.fixed_velocity = False
-        # The pad mode (DEFAULT_PADS, KEYBOARD or SEQUENCER), chosen with the encoder while the Pad
-        # Mode override is on. Its layer sits between the global mode's and base.
-        self.pad_mode = DEFAULT_PADS
+        # The pad mode (CHANNELS, PADS, KEYBOARD, SEQUENCER or MIXER), chosen with the encoder while
+        # the Pad Mode override is on. Its layer sits between the global mode's and base.
+        self.pad_mode = PADS
         # Sequencer pad mode (handlers/sequencer.py): the page of 16 steps the pads show, chosen with
         # the Group buttons (0 = Group A, steps 1-16), kept apart from pad_group. And the
         # (channel, page) the Channel Rack's red box last showed, or None to show it again.
         self.step_page = 0
         self.step_box = None
+        # Channels pad mode (handlers/channel_pads.py): the focus's first channel (a group-relative
+        # Channel Rack index), moved by the Group buttons and the encoder; the offset the red box
+        # last showed, or None to show it again; and pad id -> the global channel index a held
+        # pad's C5 went to, so its release ends the note there even after the focus moves.
+        self.channel_offset = 0
+        self.channel_box = None
+        self.channel_held = {}
         # Note Repeat mode (bridge mode only), cycled by its button: note_repeat.OFF (0), ON
         # (straight divisions) or TRIPLETS. The MK2 bridge repeats held pads while it isn't OFF.
         self.note_repeat = 0

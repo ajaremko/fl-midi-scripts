@@ -236,7 +236,7 @@ These are all of the controls present on the hardware with their location, label
 | Transport | Erase       |               | Button  |                                         |                                                     |
 | Pads   | Scene       |               | Button  | switch between pattern and song mode | illuminated in song mode |
 | Pads   | Pattern     |               | Button  | toggle encoder override: the encoder jogs through patterns (new mode: start a new pattern) | illuminated while the override is on |
-| Pads   | Pad Mode    | Keyboard      | Button  | toggle encoder override: the encoder picks the pad mode (Default, Keyboard, Sequencer; see Pad Modes) | illuminated while the override is on |
+| Pads   | Pad Mode    | Keyboard      | Button  | toggle encoder override: the encoder picks the pad mode (Channels, Pads, Keyboard, Sequencer, Mixer; see Pad Modes) | illuminated while the override is on |
 | Pads   | Navigate    | Mix           | Button  | toggle encoder override: the encoder jogs between open windows | illuminated while the override is on |
 | Pads   | Duplicate   |               | Button  | duplicate (clone) the current pattern   |                                                     |
 | Pads   | Select      | Events        | Button  | shift: open the selected channel's Piano Roll (nothing if no channel is selected) | lit in shift mode |
@@ -267,19 +267,49 @@ These are all of the controls present on the hardware with their location, label
 
 ### Pad Modes
 
-Pad Mode turns on an encoder override: while it's lit, turning the encoder picks what the pads do, and the hint bar names the mode ("Pad mode: Keyboard"). Turning stops at either end. The pad mode stays when the override is turned off (press Pad Mode again, or enter Shift, New or Color mode).
+Pad Mode turns on an encoder override: while it's lit, turning the encoder picks what the pads do, and the hint bar names the mode ("Pad mode: Keyboard"). The modes are in this order, and turning stops at either end; Pads is the startup mode, so turn left for Channels and right for the others. The pad mode stays when the override is turned off (press Pad Mode again, or enter Shift, New or Color mode).
 
 | Pad mode | The pads | Group buttons |
 |---|---|---|
-| Default (the startup mode) | play the selected group's notes in the channel's colour; FPC banks and pad colours on an FPC channel | pick the note range |
+| Channels | one Channel Rack channel each, in its colour; a press plays C5 on it and selects it (see Channels Mode) | jump the 16-channel focus: A is channels 1–16 … H is 113–128 |
+| Pads (the startup mode) | play the selected group's notes in the channel's colour; FPC banks and pad colours on an FPC channel | pick the note range |
 | Keyboard | play the selected group's notes chromatically on every channel, FPC included; lit as piano keys: C white, the other white keys in the channel's colour, black keys in a dim channel colour | pick the note range |
 | Sequencer | turn the selected channel's steps on and off, 16 at a time (see Sequencer Mode) | pick the page of steps: A is steps 1–16 … H is 113–128 |
+| Mixer | not written yet: silent and dark | pick the note range |
 
 - **Other modes still work:** Shift, New and Color mode take over the pads as usual in every pad mode (e.g. Shift + Pad 1 is undo in Keyboard mode).
-- **Pitfall:** on an FPC channel, Keyboard mode plays FPC's chromatic notes (Group D pad 1 is note 48), not its pad layout, and doesn't jump to Group E. Use Default for FPC's pads; turning back to Default on an FPC jumps to Group E.
+- **Pitfall:** until it's written, Mixer's pads are silent and dark, and the hint says "(not written yet)". Turn back to Pads to play.
+- **Pitfall:** on an FPC channel, Keyboard mode plays FPC's chromatic notes (Group D pad 1 is note 48), not its pad layout, and doesn't jump to Group E. Use Pads mode for FPC's pads; turning back to Pads on an FPC jumps to Group E.
 - **Pitfall:** on a very dark channel colour the black keys can be hard to see. Their brightness is `BLACK_KEY_BRIGHTNESS` in [renderer.py](flc_maschine/rendering/renderer.py).
-- **Pitfall:** while Note Repeat is on, the encoder only changes its rate. Turn Note Repeat off to change the pad mode. With the bridge, pads are repeated in Default and Keyboard (Sequencer's pads play no notes).
+- **Pitfall:** while Note Repeat is on, the encoder only changes its rate. Turn Note Repeat off to change the pad mode. With the bridge, pads are repeated in Channels, Pads and Keyboard mode (a held Channels pad repeats C5 on its channel); Sequencer's and Mixer's pads play no notes.
 - **Pitfall:** Pad Mode no longer toggles fixed velocity. That's F15 now, on button page 2.
+
+### Channels Mode
+
+The pads are the Channel Rack's channels, up to 16 at a time: the focus. They show the current Channel Rack group's channels.
+
+- **Pad order:** pad numbers. The focus's first channel is pad 1 (bottom-left), running across then up:
+
+  ```text
+  13 14 15 16     (pads 13-16)
+   9 10 11 12
+   5  6  7  8
+   1  2  3  4     (pads 1-4: the first four channels)
+  ```
+
+- **Lights:** each pad is its channel's colour, at full brightness while the channel is selected and dimmer otherwise. Pads past the last channel are dark.
+- **Playing:** a press plays C5 on the pad's channel, at the pad's velocity (127 with F15's fixed velocity), and selects that channel. While a channel pad is held, pressing others plays them without moving the selection. The release ends the note on the same channel, even if the focus has moved.
+- **Focus with the Group buttons:** they jump to fixed divisions: Group A is channels 1–16, B is 17–32, … H is 113–128. A group with no channels only shows a hint.
+- **Focus with the encoder:** while the Channel Rack is focused, each click scrolls the focus by one channel, reaching the positions between the divisions too. The hint shows the range ("Channels 5-20").
+- **Group lights:** every division the pads overlap is bright (A and B for channels 5–20), other divisions with channels are dim, and divisions past the last channel are dark.
+- **The red box:** for 2 seconds FL outlines the focused channels' names on the Channel Rack, scrolling them into view. It appears when you enter Channels mode, press a Group button or scroll.
+- **Selecting several channels:** push and turn the encoder in the Channel Rack, as in any mode.
+- **Pitfall:** the pad order is the pad numbering, bottom row first, unlike Sequencer mode's reading order.
+- **Pitfall:** with the Channel Rack focused, the encoder scrolls the pads instead of moving FL's selected channel. Select with the pads, push-and-turn or the mouse. With any other window focused, the encoder navigates it as usual.
+- **Pitfall:** the pads always send C5, whatever note the channel's own root note or keyboard settings expect.
+- **Pitfall:** the red box only draws while the Channel Rack is visible.
+- **Pitfall:** deleting channels, or switching the Channel Rack's group, can leave the focus past the last channel; it moves back to the last division by itself.
+- **Pitfall:** the dimmer brightness of unselected channels is `CHANNEL_DIM_BRIGHTNESS` in [renderer.py](flc_maschine/rendering/renderer.py).
 
 ### Sequencer Mode
 
@@ -295,7 +325,7 @@ The pads edit the selected Channel Rack channel's step sequencer, in the current
   ```
 
 - **Lights:** a step that's on is the channel's colour, and a step that's off is the channel's colour dimmed. While FL plays the pattern, the step being played is white.
-- **Pages:** the Group buttons pick which 16 steps the pads show: Group A is steps 1–16, B is 17–32, … H is 113–128. The pads' page is bright, the pattern's other pages are dim, and pages past the pattern's end are dark (they still work). The page is kept separately from the note range Default and Keyboard use.
+- **Pages:** the Group buttons pick which 16 steps the pads show: Group A is steps 1–16, B is 17–32, … H is 113–128. The pads' page is bright, the pattern's other pages are dim, and pages past the pattern's end are dark (they still work). The page is kept separately from the note range Pads and Keyboard use.
 - **The red box:** for 2 seconds FL draws a red box around the pads' 16 steps on the Channel Rack, scrolling it into view. It appears when you press a Group button, enter Sequencer mode, or select another channel.
 - **Undo:** each step edit saves an undo point, so Shift + Pad 1 undoes it.
 - **Pitfall:** the step order isn't the pad numbering: step 1 is pad 13, top-left.

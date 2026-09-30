@@ -17,6 +17,7 @@ from .handlers import (
     channel_colors,
     channel_controls,
     channel_knobs,
+    channel_pads,
     macro_knobs,
     mixer_tracks,
     edit,
@@ -33,7 +34,7 @@ from .handlers import (
     ui_commands,
     windows,
 )
-from .state import BASE, COLOR, DEFAULT_PADS, KEYBOARD, NEW, SEQUENCER, SHIFT
+from .state import BASE, CHANNELS, COLOR, KEYBOARD, MIXER, NEW, PADS, SEQUENCER, SHIFT
 
 _base = {
     # Top
@@ -146,23 +147,31 @@ _new = {
 _color = {"PAD_%d" % (_i + 1): channel_colors.pick(_i) for _i in range(16)}
 
 # Pad modes (handlers/pad_modes.py): searched between the global mode's layer and base, so each
-# replaces only what it binds. Default binds nothing: the base layer's pads are Default. Keyboard
-# plays the chromatic layout on every channel (no FPC banks). Sequencer's pads toggle steps of the
-# selected channel, and its Group buttons pick the page of steps.
-_default_pads = {}
+# replaces only what it binds. Channels' pads play and select Channel Rack channels, and its Group
+# buttons jump the focus. Pads binds nothing: the base layer's pads are Pads mode. Keyboard plays the
+# chromatic layout on every channel (no FPC banks). Sequencer's pads toggle steps of the selected
+# channel, and its Group buttons pick the page of steps. Mixer isn't written yet: its pads are
+# placeholders (silent and dark), and its Group buttons fall through to base.
+_channels_pads = {"PAD_%d" % (_i + 1): channel_pads.play(_i) for _i in range(16)}
+for _index, _letter in enumerate("ABCDEFGH"):
+    _channels_pads["GROUP_" + _letter] = channel_pads.jump(_index)
+_pads_layer = {}
 _keyboard_pads = {"PAD_%d" % (_i + 1): pads.play_keyboard for _i in range(16)}
 _sequencer_pads = {"PAD_%d" % (_i + 1): sequencer.toggle_step(_i) for _i in range(16)}
 for _index, _letter in enumerate("ABCDEFGH"):
     _sequencer_pads["GROUP_" + _letter] = sequencer.select_page(_index)
+_mixer_pads = {"PAD_%d" % (_i + 1): unimplemented("mixer mode") for _i in range(16)}
 
 LAYERS = {
     BASE: _base,
     SHIFT: _shift,
     NEW: _new,
     COLOR: _color,
-    DEFAULT_PADS: _default_pads,
+    CHANNELS: _channels_pads,
+    PADS: _pads_layer,
     KEYBOARD: _keyboard_pads,
     SEQUENCER: _sequencer_pads,
+    MIXER: _mixer_pads,
 }
 
 def _implemented(layer):

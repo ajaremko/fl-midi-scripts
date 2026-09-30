@@ -88,3 +88,4 @@ FPN_Preset = 6  # plugins.getName flag
 curfxScrollToMakeVisible = 1  # mixer.setTrackNumber flag
 UF_PR = 2  # general.saveUndo flag: piano roll / step edits
 CR_ScrollToView = 2  # ui.crDisplayRect flag
+CR_HighlightChannelName = 32  # ui.crDisplayRect flag

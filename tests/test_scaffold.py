@@ -28,7 +28,7 @@ import midi  # noqa: E402
 import device_FLC_MaschineMK2_Hardware as script  # noqa: E402
 import device_FLC_MaschineMK2_Bridge as bridge_script  # noqa: E402
 from flc_maschine import bindings, bridge_link, controls, diagnostics, feedback, log, macros, notes  # noqa: E402
-from flc_maschine.state import COLOR, DEFAULT_PADS, KEYBOARD, NEW, SEQUENCER, SHIFT  # noqa: E402
+from flc_maschine.state import CHANNELS, COLOR, KEYBOARD, MIXER, NEW, PADS, SEQUENCER, SHIFT  # noqa: E402
 from flc_maschine import controller as controller_module  # noqa: E402
 from flc_maschine.controller import MaschineMk2  # noqa: E402
 from flc_maschine.rendering import colors, renderer  # noqa: E402
@@ -702,12 +702,25 @@ class BridgeModeTest(ScriptTestCase):
 
     def test_pad_modes_without_notes_tell_the_bridge(self):
         self.send(cc(controls.BY_ID["PAD_MODE"].number))
-        for delta, value in ((1, 127), (1, 0), (-1, 127), (-1, 127)):  # Keyboard, Sequencer, Keyboard, Default
+        for delta, value in ((1, 127), (1, 0), (-1, 127), (-1, 127)):  # Keyboard, Sequencer, Keyboard, Pads
             self.send(cc(controls.BY_ID["ENCODER"].number, delta & 0x7F))
             self.assertEqual(self.controller.state.pad_mode == SEQUENCER, value == 0)
             if bridge_ccs():
                 self.assertEqual(bridge_ccs(), [(5, value)])
-        self.assertEqual(self.controller.state.pad_mode, DEFAULT_PADS)
+        self.assertEqual(self.controller.state.pad_mode, PADS)
+
+    def test_channels_pads_are_notes_and_unwritten_modes_are_not(self):
+        self.send(cc(controls.BY_ID["PAD_MODE"].number))
+        self.send(cc(controls.BY_ID["ENCODER"].number, 0x7F))  # Channels: its pads play C5
+        self.assertEqual(self.controller.state.pad_mode, CHANNELS)
+        self.assertEqual(bridge_ccs(), [])  # still 127, as in Pads
+        for _ in range(4):
+            self.send(cc(controls.BY_ID["ENCODER"].number, 1))  # Pads, Keyboard, Sequencer, Mixer
+        self.assertEqual(self.controller.state.pad_mode, MIXER)
+        self.assertEqual(bridge_ccs(), [])  # still 0 from Sequencer
+        self.send(cc(controls.BY_ID["ENCODER"].number, 0x7F))  # Sequencer
+        self.send(cc(controls.BY_ID["ENCODER"].number, 0x7F))  # Keyboard
+        self.assertEqual(bridge_ccs(), [(5, 127)])
 
     def test_modes_tell_the_bridge_the_pads_are_not_notes(self):
         for button in ("F3", "F4", "F12"):
@@ -1670,7 +1683,7 @@ class PresetTest(ScriptTestCase):
 
 
 class PadModeTest(ScriptTestCase):
-    """Pad Mode: an encoder override that picks the pad mode (Default, Keyboard, Sequencer)."""
+    """Pad Mode: an encoder override that picks the pad mode (Channels, Pads, Keyboard, Sequencer, Mixer)."""
 
     def press(self, control_id, value=127):
         return self.send(cc(controls.BY_ID[control_id].number, value))
@@ -1684,8 +1697,9 @@ class PadModeTest(ScriptTestCase):
 
     def pick(self, pad_mode):
         self.press("PAD_MODE")
-        for _ in range(PAD_MODES_ORDER.index(pad_mode)):
-            self.turn(1)
+        turns = PAD_MODES_ORDER.index(pad_mode) - PAD_MODES_ORDER.index(PADS)  # from Pads, the startup mode
+        for _ in range(abs(turns)):
+            self.turn(1 if turns > 0 else -1)
         self.press("PAD_MODE", 0)  # override off; the pad mode stays
 
     def test_toggles_the_override_and_its_led(self):
@@ -1693,23 +1707,26 @@ class PadModeTest(ScriptTestCase):
         self.assertEqual(self.controller.state.encoder_mode, "PAD_MODE")
         self.assertTrue(self.led("PAD_MODE"))
         self.assertFalse(self.controller.state.fixed_velocity)
-        self.assertEqual(ui.hints, ["Pad mode: Default"])
+        self.assertEqual(ui.hints, ["Pad mode: Pads"])
         self.press("PAD_MODE", 0)
         self.assertIsNone(self.controller.state.encoder_mode)
         self.assertFalse(self.led("PAD_MODE"))
 
     def test_turning_steps_through_the_modes_and_stops_at_the_ends(self):
         self.press("PAD_MODE")
-        self.turn(-1)  # already at Default
-        self.assertEqual(self.controller.state.pad_mode, DEFAULT_PADS)
+        self.turn(-1)
+        self.turn(-1)  # already at Channels
+        self.assertEqual(self.controller.state.pad_mode, CHANNELS)
+        self.assertEqual(ui.hints[-2:], ["Pad mode: Channels"] * 2)
         modes = []
-        for _ in range(3):
+        for _ in range(5):
             self.turn(1)
             modes.append(self.controller.state.pad_mode)
-        self.assertEqual(modes, [KEYBOARD, SEQUENCER, SEQUENCER])
-        self.assertEqual(ui.hints[-3:], ["Pad mode: Keyboard", "Pad mode: Sequencer", "Pad mode: Sequencer"])
+        self.assertEqual(modes, [PADS, KEYBOARD, SEQUENCER, MIXER, MIXER])
+        self.assertEqual(ui.hints[-5:], ["Pad mode: Pads", "Pad mode: Keyboard", "Pad mode: Sequencer",
+                                         "Pad mode: Mixer (not written yet)", "Pad mode: Mixer (not written yet)"])
         self.turn(-5)  # one mode per message, however fast
-        self.assertEqual(self.controller.state.pad_mode, KEYBOARD)
+        self.assertEqual(self.controller.state.pad_mode, SEQUENCER)
         self.assertEqual(transport.calls, [])  # no navigation while the override is on
 
     def test_the_pad_mode_stays_after_the_override_and_the_encoder_navigates_again(self):
@@ -1719,13 +1736,27 @@ class PadModeTest(ScriptTestCase):
         self.turn(1)
         self.assertEqual(transport.calls, [("globalTransport", midi.FPT_Down, 1)])
 
+    def check_silent_dark_pads_and_working_groups(self, pad_mode):
+        self.pick(pad_mode)
+        event = self.send(note_on(controls.BY_ID["PAD_1"].number))
+        self.assertTrue(event.handled)  # not played
+        self.assertIn("unimplemented: PAD_1", self.log.getvalue())
+        self.send(note_off(controls.BY_ID["PAD_1"].number))
+        self.assertTrue(all(self.led("PAD_%d" % (i + 1)) == colors.OFF for i in range(16)))
+        self.press("GROUP_B")
+        self.assertEqual(self.controller.state.pad_group, 1)
+        self.assertNotEqual(self.led("GROUP_B"), colors.OFF)
+
+    def test_mixer_pads_are_silent_and_dark_until_written(self):
+        self.check_silent_dark_pads_and_working_groups(MIXER)
+
     def test_shift_pads_work_in_every_pad_mode(self):
         self.pick(KEYBOARD)
         self.press("F3")
         self.send(note_on(controls.BY_ID["PAD_1"].number))  # undo
         self.assertIn("undoUp", general.calls)
 
-    def test_default_plays_notes_again(self):
+    def test_pads_mode_plays_notes_again(self):
         self.pick(SEQUENCER)
         self.press("PAD_MODE")
         self.turn(-2)
@@ -1741,7 +1772,7 @@ class PadModeTest(ScriptTestCase):
         self.assertIsNone(self.controller.state.encoder_mode)
 
 
-PAD_MODES_ORDER = (DEFAULT_PADS, KEYBOARD, SEQUENCER)
+PAD_MODES_ORDER = (CHANNELS, PADS, KEYBOARD, SEQUENCER, MIXER)
 
 
 class DuplicateTest(ScriptTestCase):
@@ -2282,11 +2313,11 @@ class KeyboardModeTest(ScriptTestCase):
         for letter in "ABCDEFGH":
             self.assertNotEqual(self.controller.leds._sent["GROUP_" + letter], colors.OFF)
 
-    def test_back_to_default_on_an_fpc_jumps_to_its_banks(self):
+    def test_back_to_pads_on_an_fpc_jumps_to_its_banks(self):
         self.select_fpc()
         self.send(cc(controls.BY_ID["PAD_MODE"].number))
-        self.send(cc(controls.BY_ID["ENCODER"].number, 0x7F))  # Default
-        self.assertEqual(self.controller.state.pad_mode, DEFAULT_PADS)
+        self.send(cc(controls.BY_ID["ENCODER"].number, 0x7F))  # Pads
+        self.assertEqual(self.controller.state.pad_mode, PADS)
         self.assertEqual(self.controller.state.pad_group, 4)
         self.assertEqual(self.send(note_on(controls.BY_ID["PAD_1"].number)).data1, 36)
 
@@ -2446,6 +2477,183 @@ class SequencerModeTest(ScriptTestCase):
         self.assertIsNone(self.controller.fl.fpc_banks)
         self.press_pad(13)
         self.assertEqual(channels.grid_calls, [(FPC_CHANNEL, 0, 1)])
+
+
+
+class ChannelsModeTest(ScriptTestCase):
+    """Channels pad mode: each pad is a Channel Rack channel; the Group buttons and the encoder move
+    the 16-channel focus."""
+
+    DIM = renderer.CHANNEL_DIM_BRIGHTNESS
+
+    def setUp(self):
+        super().setUp()
+        channels.count = 20
+        channels.colors = {i: 0xFF0000 for i in range(20)}  # red: hue 0
+        channels.colors[1] = 0x00FF00  # green: hue 42
+        channels.selection = {0}
+        channels.notes = []
+        channels.global_offset = 0
+
+    def enter(self):
+        self.send(cc(controls.BY_ID["PAD_MODE"].number))
+        self.send(cc(controls.BY_ID["ENCODER"].number, 0x7F))  # one left of Pads
+        self.send(cc(controls.BY_ID["PAD_MODE"].number, 0))  # override off
+        self.assertEqual(self.controller.state.pad_mode, CHANNELS)
+
+    def press(self, control_id, value=127):
+        return self.send(cc(controls.BY_ID[control_id].number, value))
+
+    def turn(self, delta):
+        del transport.calls[:]
+        return self.send(cc(controls.BY_ID["ENCODER"].number, delta & 0x7F))
+
+    def led(self, control_id):
+        return self.controller.leds._sent[control_id]
+
+    def group_leds(self, letters="ABC"):
+        return [self.led("GROUP_" + letter) for letter in letters]
+
+    def test_a_pad_plays_c5_on_its_channel_and_selects_it(self):
+        self.enter()
+        channels.global_offset = 5  # the current group's channels start at global index 5
+        event = self.send(note_on(controls.BY_ID["PAD_3"].number, 90))
+        self.assertTrue(event.handled)  # not also played on the selected channel
+        self.assertEqual(channels.notes, [(7, 60, 90)])
+        self.assertEqual(channels.selection, {2})
+        self.send(note_off(controls.BY_ID["PAD_3"].number))
+        self.assertEqual(channels.notes[-1], (7, 60, 0))
+
+    def test_the_release_ends_the_note_where_it_started(self):
+        self.enter()
+        ui.focused = midi.widChannelRack
+        self.send(note_on(controls.BY_ID["PAD_1"].number))
+        self.turn(1)  # focus now starts at channel 2
+        self.send(note_off(controls.BY_ID["PAD_1"].number))
+        self.assertEqual(channels.notes, [(0, 60, 100), (0, 60, 0)])
+
+    def test_fixed_velocity(self):
+        self.enter()
+        self.press("F15")
+        self.send(note_on(controls.BY_ID["PAD_1"].number, 30))
+        self.assertEqual(channels.notes, [(0, 60, 127)])
+
+    def test_only_the_first_held_pad_selects(self):
+        self.enter()
+        self.send(note_on(controls.BY_ID["PAD_2"].number))
+        self.send(note_on(controls.BY_ID["PAD_4"].number))
+        self.assertEqual(channels.selection, {1})
+        self.assertEqual([n[0] for n in channels.notes], [1, 3])  # both played
+        self.send(note_off(controls.BY_ID["PAD_2"].number))
+        self.send(note_off(controls.BY_ID["PAD_4"].number))
+        self.send(note_on(controls.BY_ID["PAD_4"].number))  # nothing held now
+        self.assertEqual(channels.selection, {3})
+
+    def test_pads_past_the_last_channel_are_dark_and_silent(self):
+        channels.count = 3
+        self.enter()
+        self.assertEqual(self.led("PAD_4"), colors.OFF)
+        self.send(note_on(controls.BY_ID["PAD_4"].number))
+        self.assertEqual(channels.notes, [])
+
+    def test_pads_show_channel_colours_brighter_when_selected(self):
+        self.enter()
+        self.assertEqual(self.led("PAD_1"), RED)  # selected
+        self.assertEqual(self.led("PAD_2"), (42, 127, self.DIM))  # green, not selected
+        self.assertEqual(self.led("PAD_3"), (0, 127, self.DIM))
+        channels.selection = {1, 2}  # e.g. selected with the mouse
+        self.refresh()
+        self.assertEqual([self.led("PAD_%d" % n) for n in (1, 2, 3)], [(0, 127, self.DIM), (42, 127, 127), RED])
+
+    def test_group_buttons_jump_the_focus(self):
+        self.enter()
+        self.press("GROUP_B")
+        self.assertEqual(self.controller.state.channel_offset, 16)
+        self.assertEqual(ui.hints[-1], "Channels 17-20")
+        self.assertEqual(self.led("PAD_1"), (0, 127, self.DIM))  # channel 17
+        self.assertEqual(self.led("PAD_5"), colors.OFF)  # past channel 20
+        self.press("GROUP_C")  # no channels there
+        self.assertEqual(self.controller.state.channel_offset, 16)
+        self.assertEqual(ui.hints[-1], "No channels in Group C")
+
+    def test_group_leds_show_the_divisions_the_focus_overlaps(self):
+        channels.count = 40  # Groups A-C have channels
+        channels.colors = {}  # the selected channel's colour (channel 0) is black: hue 0, no saturation
+        self.enter()
+        lit, dim = (0, 0, 127), (0, 0, renderer.DIM_BRIGHTNESS)
+        self.assertEqual(self.group_leds("ABCD"), [lit, dim, dim, colors.OFF])
+        ui.focused = midi.widChannelRack
+        for _ in range(4):
+            self.turn(1)  # channels 5-20
+        self.assertEqual(self.group_leds("ABCD"), [lit, lit, dim, colors.OFF])
+
+    def test_the_encoder_scrolls_the_focus_in_the_channel_rack(self):
+        self.enter()
+        ui.focused = midi.widChannelRack
+        self.turn(-1)  # already at the first channel
+        self.assertEqual(self.controller.state.channel_offset, 0)
+        for _ in range(20):
+            self.turn(1)
+        self.assertEqual(self.controller.state.channel_offset, 16)  # the last division's start
+        self.assertEqual(ui.hints[-1], "Channels 17-20")
+        self.assertEqual(transport.calls, [])  # didn't move FL's selection
+        self.turn(-1)
+        self.assertEqual(ui.hints[-1], "Channels 16-20")
+
+    def test_the_encoder_navigates_elsewhere_and_overrides_still_win(self):
+        self.enter()
+        ui.focused = midi.widBrowser
+        self.turn(1)
+        self.assertEqual(transport.calls, [("globalTransport", midi.FPT_Down, 1)])
+        self.assertEqual(self.controller.state.channel_offset, 0)
+        ui.focused = midi.widChannelRack
+        self.press("VOLUME")  # override on
+        self.turn(1)
+        self.assertEqual(self.controller.state.channel_offset, 0)
+
+    def test_push_and_turn_still_selects_channels(self):
+        self.enter()
+        ui.focused = midi.widChannelRack
+        channels.selected = 0
+        self.press("ENCODER_PUSH")
+        self.turn(1)
+        self.turn(1)
+        self.press("ENCODER_PUSH", 0)
+        self.assertEqual(channels.selection, {0, 1, 2})
+        self.assertEqual(self.controller.state.channel_offset, 0)
+
+    def test_red_box_on_entering_jumping_and_scrolling(self):
+        ui.visible = {midi.widChannelRack}
+        self.enter()
+        flags = midi.CR_HighlightChannelName | midi.CR_ScrollToView
+        self.assertEqual(ui.rects, [(0, 0, 0, 16, 2000, flags)])
+        self.press("GROUP_B")
+        self.assertEqual(ui.rects[-1], (0, 16, 0, 4, 2000, flags))  # channels 17-20 only
+        self.press("GROUP_B")  # again: shown again
+        self.assertEqual(len(ui.rects), 3)
+        ui.focused = midi.widChannelRack
+        self.turn(-1)
+        self.assertEqual(ui.rects[-1], (0, 15, 0, 5, 2000, flags))
+
+    def test_no_red_box_while_the_channel_rack_is_hidden(self):
+        self.enter()
+        self.press("GROUP_B")
+        self.assertEqual(ui.rects, [])
+
+    def test_the_focus_moves_back_when_channels_are_removed(self):
+        self.enter()
+        self.press("GROUP_B")
+        channels.count = 10
+        self.refresh()
+        self.assertEqual(self.controller.state.channel_offset, 0)
+        self.assertEqual(self.led("PAD_1"), RED)  # rendered again with channel 1
+
+    def test_shift_pads_still_override(self):
+        self.enter()
+        self.press("F3")
+        self.send(note_on(controls.BY_ID["PAD_1"].number))  # undo
+        self.assertIn("undoUp", general.calls)
+        self.assertEqual(channels.notes, [])
 
 
 if __name__ == "__main__":

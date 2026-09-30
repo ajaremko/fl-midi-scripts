@@ -146,3 +146,15 @@ def setGridBit(index, position, value, useGlobalIndex=False):
 
 def isGridBitAssigned(index, useGlobalIndex=False):
     return 0 if index in no_grid else 1
+
+
+global_offset = 0  # getChannelIndex: group index + this (as if other groups' channels came first)
+notes = []  # (global index, note, velocity) passed to midiNoteOn
+
+
+def getChannelIndex(index):
+    return index + global_offset
+
+
+def midiNoteOn(indexGlobal, note, velocity, channel=-1):
+    notes.append((indexGlobal, note, velocity))

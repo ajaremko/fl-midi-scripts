@@ -15,7 +15,7 @@ import midi
 from .. import bindings, controls, notes
 from ..handlers import sequencer
 from ..handlers.channel_colors import PALETTE
-from ..state import COLOR, DEFAULT_PADS, KEYBOARD, NEW, SEQUENCER, SHIFT
+from ..state import CHANNELS, COLOR, KEYBOARD, NEW, PADS, SEQUENCER, SHIFT
 from . import colors
 
 # Brightness of the pads and the selected Group button. Full brightness keeps dark channel
@@ -30,6 +30,8 @@ PALETTE_DIM = 70
 BLACK_KEY_BRIGHTNESS = 20
 # Sequencer pad mode: steps that are off, in the channel's colour. Tune on the hardware.
 STEP_OFF_BRIGHTNESS = 20
+# Channels pad mode: channels that aren't selected, in their own colour (Color mode dims the same).
+CHANNEL_DIM_BRIGHTNESS = 70
 
 _PAD_IDS = [control.id for control in controls.PADS]
 
@@ -46,12 +48,12 @@ def _channel_hsb(fl):
 def _channel_color(state, fl, frame):
     """Pads and Group buttons take the selected channel's colour; the selected group is brightest.
 
-    While the selected channel is FPC (in Default pad mode), only the FPC groups light, and the pads
+    While the selected channel is FPC (in Pads mode), only the FPC groups light, and the pads
     take the colours of FPC's pads (empty pads stay dark).
     """
     color = _channel_hsb(fl)
     lit = colors.with_brightness(color, LIT_BRIGHTNESS)
-    fpc_mode = fl.fpc_channel is not None and state.pad_mode == DEFAULT_PADS
+    fpc_mode = fl.fpc_channel is not None and state.pad_mode == PADS
 
     if not fpc_mode:
         for pad_id in _PAD_IDS:
@@ -170,6 +172,32 @@ def _sequencer_pads(state, fl, frame):
             frame[pad_id] = colors.with_brightness(color, STEP_OFF_BRIGHTNESS)
 
 
+def _channel_pads(state, fl, frame):
+    """Channels pad mode. Pad i (pad-number order) is channel channel_offset + i, in that channel's
+    colour: full brightness when selected, CHANNEL_DIM_BRIGHTNESS when not, dark past the last
+    channel. Group buttons: the divisions the 16 pads overlap bright, other divisions with
+    channels dim, divisions past the last channel dark."""
+    if state.pad_mode != CHANNELS:
+        return
+    for pad_id, rgb, selected in zip(_PAD_IDS, fl.rack_colors, fl.rack_selected):
+        if rgb is None:
+            frame[pad_id] = colors.OFF
+        else:
+            brightness = LIT_BRIGHTNESS if selected else CHANNEL_DIM_BRIGHTNESS
+            frame[pad_id] = colors.with_brightness(colors.rgb_to_hsb(rgb), brightness)
+
+    color = _channel_hsb(fl)
+    shown_last = min(state.channel_offset + len(_PAD_IDS), fl.channel_count) - 1
+    for index, letter in enumerate("ABCDEFGH"):
+        first = index * len(_PAD_IDS)
+        if first >= fl.channel_count:
+            frame["GROUP_" + letter] = colors.OFF
+        elif first <= shown_last and state.channel_offset <= first + len(_PAD_IDS) - 1:
+            frame["GROUP_" + letter] = colors.with_brightness(color, LIT_BRIGHTNESS)
+        else:
+            frame["GROUP_" + letter] = colors.with_brightness(color, DIM_BRIGHTNESS)
+
+
 def _pad_mode(state, fl, frame):
     frame["F15"] = state.fixed_velocity
     frame["NOTE_REPEAT"] = bool(
@@ -256,6 +284,7 @@ RULES = [
     _pad_layer,
     _keyboard_pads,
     _sequencer_pads,
+    _channel_pads,
     _focused_window,
     _transport,
     _channel_state,

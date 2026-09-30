@@ -1,7 +1,7 @@
 """
 Pads: play notes on the selected channel, translated to the selected pad group's notes.
 
-Default pad mode (play): while the selected channel is FPC, Groups E and F play FPC's two banks
+Pads mode (play): while the selected channel is FPC, Groups E and F play FPC's two banks
 instead (see notes.py) and the other groups are silent. Keyboard pad mode (play_keyboard) always
 plays the chromatic layout, FPC included.
 """
@@ -10,7 +10,7 @@ import channels
 import ui
 
 from .. import events, fpc, log, notes
-from ..state import DEFAULT_PADS
+from ..state import PADS
 from .common import on_press
 
 # Velocity pads play at while fixed velocity (F15) is on.
@@ -73,7 +73,7 @@ def _play(controller, ev, note_for_press):
 
 
 def play(controller, ev):
-    """Default pad mode: the selected group's notes, or FPC's banks on an FPC channel."""
+    """Pads mode: the selected group's notes, or FPC's banks on an FPC channel."""
     _play(controller, ev, _note_for_press)
 
 
@@ -119,9 +119,9 @@ def transpose(semitones):
 
 
 def follow_fpc_selection(state, fl):
-    """Jump to the bank A group (Group E) when an FPC channel becomes selected, in Default pad mode
-    only. Other pad modes don't record the FPC either, so turning back to Default jumps then."""
-    if state.pad_mode != DEFAULT_PADS:
+    """Jump to the bank A group (Group E) when an FPC channel becomes selected, in Pads mode only.
+    Other pad modes don't record the FPC either, so turning back to Pads jumps then."""
+    if state.pad_mode != PADS:
         return
     if fl.fpc_channel is not None and fl.fpc_channel != state.fpc_channel:
         state.pad_group = FPC_START_GROUP
