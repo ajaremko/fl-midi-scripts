@@ -106,3 +106,15 @@ def incEventValue(eventId, step, res=1.0 / 64):
 def getTargetFxTrack(index, useGlobalIndex=False):
     import general
     return general.rec_values.get(getRecEventId(index) + 8, fx_tracks.get(index, 0))
+
+
+types = {}  # channel index -> channel type (default: a generator plugin)
+
+
+def getChannelType(index, useGlobalIndex=False):
+    import midi
+    return types.get(index, midi.CT_GenPlug)
+
+
+def setChannelColor(index, color, useGlobalIndex=False):
+    colors[index] = color

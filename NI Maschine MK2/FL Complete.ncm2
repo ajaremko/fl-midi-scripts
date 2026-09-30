@@ -786,6 +786,7 @@
           <reaction>ondown</reaction>
         </button>
         <knob version="1" id="Knob1">
+          <name>Macro 1</name>
           <controller mode="comp">22</controller>
           <channel>0</channel>
           <min>0</min>
@@ -796,6 +797,7 @@
           <bipolar>off</bipolar>
         </knob>
         <knob version="1" id="Knob2">
+          <name>Macro 2</name>
           <controller mode="comp">23</controller>
           <channel>0</channel>
           <min>0</min>
@@ -806,6 +808,7 @@
           <bipolar>off</bipolar>
         </knob>
         <knob version="1" id="Knob3">
+          <name>Macro 3</name>
           <controller mode="comp">24</controller>
           <channel>0</channel>
           <min>0</min>
@@ -816,6 +819,7 @@
           <bipolar>off</bipolar>
         </knob>
         <knob version="1" id="Knob4">
+          <name>Macro 4</name>
           <controller mode="comp">25</controller>
           <channel>0</channel>
           <min>0</min>
@@ -826,6 +830,7 @@
           <bipolar>off</bipolar>
         </knob>
         <knob version="1" id="Knob5">
+          <name>Macro 5</name>
           <controller mode="comp">26</controller>
           <channel>0</channel>
           <min>0</min>
@@ -836,6 +841,7 @@
           <bipolar>off</bipolar>
         </knob>
         <knob version="1" id="Knob6">
+          <name>Macro 6</name>
           <controller mode="comp">27</controller>
           <channel>0</channel>
           <min>0</min>
@@ -846,6 +852,7 @@
           <bipolar>off</bipolar>
         </knob>
         <knob version="1" id="Knob7">
+          <name>Macro 7</name>
           <controller mode="comp">28</controller>
           <channel>0</channel>
           <min>0</min>
@@ -856,6 +863,7 @@
           <bipolar>off</bipolar>
         </knob>
         <knob version="1" id="Knob8">
+          <name>Macro 8</name>
           <controller mode="comp">29</controller>
           <channel>0</channel>
           <min>0</min>

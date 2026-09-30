@@ -14,8 +14,10 @@ import midi
 
 from .handlers.common import unimplemented
 from .handlers import (
+    channel_colors,
     channel_controls,
     channel_knobs,
+    macro_knobs,
     edit,
     encoder,
     groups,
@@ -27,7 +29,7 @@ from .handlers import (
     ui_commands,
     windows,
 )
-from .state import BASE, NEW, SHIFT
+from .state import BASE, COLOR, NEW, SHIFT
 
 _base = {
     # Top
@@ -80,16 +82,18 @@ _base = {
     "MUTE": channel_controls.mute,
 }
 
-# F9-F16 have no function yet.
+# F9-F16 (button page 2): F12 toggles Color mode; the rest have no function yet.
 for _i in range(9, 17):
     _base["F%d" % _i] = unimplemented()
+_base["F12"] = modes.toggle(COLOR)
 
-# E1-E8: the selected channel's settings (E9-E16, knob page 2, have no binding yet and pass
-# through to FL).
+# E1-E8: the selected channel's settings. E9-E16 (knob page 2): macros for the focused plugin.
 for _i in (1, 2, 3, 5, 6, 7):
     _base["E%d" % _i] = channel_knobs.turn
 _base["E4"] = channel_knobs.pitch_range
 _base["E8"] = channel_knobs.mixer_track
+for _i in range(9, 17):
+    _base["E%d" % _i] = macro_knobs.turn
 
 for _index, _letter in enumerate("ABCDEFGH"):
     _base["GROUP_" + _letter] = groups.select(_index)
@@ -135,10 +139,14 @@ _new = {
     "ALL": modes.once(ui_commands.send(midi.FPT_SaveNew)),  # save new version
 }
 
+# Color mode is latched like Shift: each pad colours the selected channel(s), and it stays on.
+_color = {"PAD_%d" % (_i + 1): channel_colors.pick(_i) for _i in range(16)}
+
 LAYERS = {
     BASE: _base,
     SHIFT: _shift,
     NEW: _new,
+    COLOR: _color,
 }
 
 def _implemented(layer):
@@ -151,6 +159,7 @@ def _implemented(layer):
 MODE_CONTROLS = {
     SHIFT: _implemented(_shift),
     NEW: _implemented(_new),
+    COLOR: _implemented(_color),
 }
 
 

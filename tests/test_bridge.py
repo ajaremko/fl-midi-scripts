@@ -241,6 +241,25 @@ class NoteRepeaterTest(unittest.TestCase):
             self.r.clock(t)
             self.r.tick(t)
 
+    def test_pads_that_are_functions_pass_straight_through(self):
+        # Shift, New or Color mode in the script: CC 5 = 0.
+        self.r.control_change(bridge.CC_PADS_PLAY_NOTES, 0)
+        self.start_clock()
+        self.run_clocks(0, 2)
+        self.assertTrue(self.r.pad_on(0, 12, 90, 0.045))  # not held back to the grid line
+        self.run_clocks(3, 12, start_time=0.06)
+        self.assertEqual(self.notes, [])  # not repeated
+        self.assertTrue(self.r.pad_off(0, 12, 0.3))
+
+    def test_a_mode_turning_on_stops_repeating_pads(self):
+        self.r.pad_on(0, 12, 90, 0.0)
+        self.r.control_change(bridge.CC_PADS_PLAY_NOTES, 0)
+        self.assertEqual(self.notes, [("note_off", 12, 0)])
+        self.assertFalse(self.r.busy)
+        self.r.control_change(bridge.CC_PADS_PLAY_NOTES, 127)
+        self.r.pad_on(0, 13, 90, 1.0)
+        self.assertTrue(self.r.busy)  # repeating again with the mode off
+
     def test_off_passes_everything_and_tracks_nothing(self):
         self.r.control_change(bridge.CC_REPEAT, 0)
         self.assertTrue(self.r.pad_on(0, 12, 90, 0.0))

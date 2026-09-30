@@ -12,6 +12,8 @@ bridge can take them out of the LED stream (it doesn't pass channel 16 on to the
                       are just other clock counts, so the bridge doesn't know about modes.
     CC 3, then CC 35  tempo x 10 (1200 = 120.0 BPM), MSB then LSB; used while FL is stopped
     CC 4              FL playing: 0 stopped, 127 playing (so the bridge can tell when the clock is missing)
+    CC 5              pads play notes: 127 with no mode on, 0 in Shift, New or Color mode, where pads
+                      are functions that the bridge mustn't hold back or repeat
     CC 126 (bridge -> script)  FL is playing but no MIDI clock arrives: Send master sync is off
     CC 127 (bridge -> script)  hello: the bridge (re)started, so everything is sent again
 
@@ -28,6 +30,7 @@ CC_REPEAT = 1
 CC_RATE, CC_RATE_LSB = 2, 34
 CC_TEMPO, CC_TEMPO_LSB = 3, 35
 CC_PLAYING = 4
+CC_PADS_PLAY_NOTES = 5
 CC_NO_CLOCK = 126  # bridge -> script
 CC_HELLO = 127  # bridge -> script
 FROM_BRIDGE = (CC_NO_CLOCK, CC_HELLO)
@@ -71,6 +74,7 @@ class BridgeLink:
         self._send_14bit("rate", CC_RATE, CC_RATE_LSB, note_repeat.rate_clocks(state))
         self._send_14bit("tempo", CC_TEMPO, CC_TEMPO_LSB, max(0, min(MAX_14BIT, int(round(fl.tempo * 10)))))
         self._send_7bit("playing", CC_PLAYING, 127 if fl.playing else 0)
+        self._send_7bit("pads", CC_PADS_PLAY_NOTES, 0 if state.mode else 127)
 
     def _send_7bit(self, key, control, value):
         if self._sent.get(key) != value:

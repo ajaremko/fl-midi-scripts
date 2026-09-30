@@ -77,3 +77,9 @@ REC_ShowHint = 4
 REC_UpdateControl = 32
 REC_Control = REC_UpdateValue | REC_UpdateControl
 EKRes = 1.0 / 64
+
+PIM_None = 0
+CT_Sampler = 0
+CT_GenPlug = 2
+CT_Layer = 3
+CT_AudioClip = 4

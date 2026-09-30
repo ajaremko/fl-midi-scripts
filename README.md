@@ -19,9 +19,35 @@ Of the 3 controllers, its responsible for
 
 This allows the other two controllers to focus on doing what they do best - being a sequencer and a keyboard respectively.
 
+### Macros (E9–E16)
+
+Knob page 2 is labelled "Macro 1" … "Macro 8". What each knob controls depends on the plugin the macros act on, and FL's hint bar names the parameter and shows its value as you turn. Mappings live in [macros.py](flc_maschine/macros.py) and are our own choices.
+
+- **Which plugin:** the focused mixer effect if an effect window is focused, otherwise the selected channel's instrument.
+  - **Sampler, Audio Clip and Layer channels** have no plugin; they get channel-parameter macros (not agreed yet).
+  - **Pitfall:** a mixer effect is only targeted while its window is focused. Otherwise the macros act on the selected channel.
+- **Mapped so far:**
+
+  | Plugin | Macro 1 | Macro 2 | Macro 3 | Macro 4 | Macro 5 | Macro 6 | Macro 7 | Macro 8 |
+  |---|---|---|---|---|---|---|---|---|
+  | FL Keys | Release | Hardness | Muffle | Stereo | Detune | Overdrive | Pan/Tremolo | LFO Rate |
+  | 3x Osc | Osc 1 shape | Osc 2 shape | Osc 3 shape | Osc 1 coarse pitch | Osc 2 coarse pitch | Osc 3 coarse pitch | Osc 2 mix level | Osc 3 mix level |
+  | FLEX | FLEX macro 1 | macro 2 | macro 3 | macro 4 | macro 5 | macro 6 | macro 7 | macro 8 |
+
+  These are FLEX's own 8 macro knobs. FL names them after the loaded preset (e.g. "Filter", "Vibrato"), and the hint bar shows those names. Two can be "Not Used", so they're mapped by parameter number (10–17).
+
+  Still to map from the first test subset: Fruity Reeverb 2, Fruity Delay 3.
+- **Plugins without macros:** the knobs do nothing, and the hint says "No macros for <plugin>". The first time in a session, the script logs the plugin's parameters (index: name) in VIEW > Script output.
+- **Adding a plugin:**
+  1. Turn a macro knob on it.
+  2. Copy the logged list.
+  3. Add up to 8 parameter names to `MACROS` in `macros.py`, keyed by the plugin's name as FL reports it. Use the logged number instead of the name where names repeat or change with the preset. `None` leaves a knob unused. The hint bar always shows FL's own name for the parameter.
+  4. Reload the script.
+  - **Names must match FL's:** case and surrounding spaces don't matter, but a name that isn't found is logged once ("Macro 3: no parameter '…' on …"), and that knob does nothing.
+
 ### Template: relative knobs
 
-E1–E16 must be **relative (two's complement)** in the Controller Editor template, like the master encoder. The repo's [FL Complete.ncm2](NI%20Maschine%20MK2/FL%20Complete.ncm2) is set up that way, with the knob page 1 labels (Volume, Pan, Pitch, Range, Gate, Shift, Swing, Mixer). Open it in Controller Editor and send it to the MK2.
+E1–E16 must be **relative (two's complement)** in the Controller Editor template, like the master encoder. The repo's [FL Complete.ncm2](NI%20Maschine%20MK2/FL%20Complete.ncm2) is set up that way, with the knob page 1 labels (Volume, Pan, Pitch, Range, Gate, Shift, Swing, Mixer) and page 2 labels (Macro 1 … Macro 8). Open it in Controller Editor and send it to the MK2.
 - **Pitfall, knobs left absolute:** E1–E8 barely move their parameters and can go the wrong way, because absolute values are read as small relative steps.
 - **Pitfall, template changed in Controller Editor:** save it back over the repo's file, so the tests (`test_template.py`) keep the script and the template in step.
 
@@ -157,7 +183,7 @@ These are all of the controls present on the hardware with their location, label
 | Top    | F9          |               | Button  |                                         |                                                     |
 | Top    | F10         |               | Button  |                                         |                                                     |
 | Top    | F11         |               | Button  |                                         |                                                     |
-| Top    | F12         |               | Button  |                                         |                                                     |
+| Top    | F12         |               | Button  | toggle Color mode: the pads pick a colour for the selected channel(s) (see Shift, New and Color Modes) | lit while on; on button page 2 |
 | Top    | F13         |               | Button  |                                         |                                                     |
 | Top    | F14         |               | Button  |                                         |                                                     |
 | Top    | F15         |               | Button  |                                         |                                                     |
@@ -173,21 +199,21 @@ These are all of the controls present on the hardware with their location, label
 | Top    | E6          | Shift         | Encoder | selected channel's time shift (Misc functions, Time) | relative; labelled "Shift" on the display; FL's hint bar shows the value |
 | Top    | E7          | Swing         | Encoder | selected channel's swing mix (Misc functions, Time) | relative; labelled "Swing" on the display; FL's hint bar shows the value |
 | Top    | E8          | Mixer         | Encoder | route the selected channel to the next / previous mixer track, one per step (Master to the last insert) | relative; labelled "Mixer" on the display; FL's hint bar shows the value |
-| Top    | E9          |               | Encoder | not assigned yet (E9–E16, knob page 2): passed through to FL, so FL's Link to controller can use them | relative |
-| Top    | E10         |               | Encoder |                                         |                                                     |
-| Top    | E11         |               | Encoder |                                         |                                                     |
-| Top    | E12         |               | Encoder |                                         |                                                     |
-| Top    | E13         |               | Encoder |                                         |                                                     |
-| Top    | E14         |               | Encoder |                                         |                                                     |
-| Top    | E15         |               | Encoder |                                         |                                                     |
-| Top    | E16         |               | Encoder |                                         |                                                     |
+| Top    | E9          | Macro 1       | Encoder | Macro 1: a parameter of the focused plugin, which depends on the plugin (see Macros below) | relative; labelled "Macro 1"; FL's hint bar names the parameter and shows its value |
+| Top    | E10         | Macro 2       | Encoder | Macro 2: a parameter of the focused plugin, which depends on the plugin (see Macros below) | relative; labelled "Macro 2"; FL's hint bar names the parameter and shows its value |
+| Top    | E11         | Macro 3       | Encoder | Macro 3: a parameter of the focused plugin, which depends on the plugin (see Macros below) | relative; labelled "Macro 3"; FL's hint bar names the parameter and shows its value |
+| Top    | E12         | Macro 4       | Encoder | Macro 4: a parameter of the focused plugin, which depends on the plugin (see Macros below) | relative; labelled "Macro 4"; FL's hint bar names the parameter and shows its value |
+| Top    | E13         | Macro 5       | Encoder | Macro 5: a parameter of the focused plugin, which depends on the plugin (see Macros below) | relative; labelled "Macro 5"; FL's hint bar names the parameter and shows its value |
+| Top    | E14         | Macro 6       | Encoder | Macro 6: a parameter of the focused plugin, which depends on the plugin (see Macros below) | relative; labelled "Macro 6"; FL's hint bar names the parameter and shows its value |
+| Top    | E15         | Macro 7       | Encoder | Macro 7: a parameter of the focused plugin, which depends on the plugin (see Macros below) | relative; labelled "Macro 7"; FL's hint bar names the parameter and shows its value |
+| Top    | E16         | Macro 8       | Encoder | Macro 8: a parameter of the focused plugin, which depends on the plugin (see Macros below) | relative; labelled "Macro 8"; FL's hint bar names the parameter and shows its value |
 | Master | Volume      |               | Button  | toggle encoder override: the encoder adjusts master volume | illuminated while the override is on |
 | Master | Swing       |               | Button  | toggle encoder override: the encoder adjusts master swing | illuminated while the override is on |
 | Master | Tempo       |               | Button  | toggle encoder override: the encoder adjusts master tempo | illuminated while the override is on |
 | Master | Left        |               | Button  | left (like the left arrow key in the focused window) |                                                     |
 | Master | Right       |               | Button  | right (like the right arrow key in the focused window) |                                                     |
 | Master | Enter       |               | Button  | enter; in the Channel Rack, open the selected channel's plugin |                                                     |
-| Master | Note Repeat | Tap           | Button  | (Bridge controller type only) press to cycle **Off → On → Triplets**. On: held pads retrigger at a straight division (1/4, 1/8, 1/16, 1/32); Triplets: at a triplet division (1/4T, 1/8T, 1/16T, 1/32T). Locked to FL's clock while playing, the first note too: a press within a short grace window after a grid line (1/8 of the division, at most 30 ms) plays at once, any other press plays on the next grid line, and a quick tap still plays one note there. While on, turning the master encoder changes the division within the mode (clockwise faster); switching modes keeps the division (1/16 ↔ 1/16T). FL's hint bar shows the mode and division. Independent of FL's grid snap. Shift: tap tempo (both controller types) | lit in On and Triplets; needs the MK2 bridge running, and Send master sync for repeats locked to the song |
+| Master | Note Repeat | Tap           | Button  | (Bridge controller type only) press to cycle **Off → On → Triplets**. On: held pads retrigger at a straight division (1/4, 1/8, 1/16, 1/32); Triplets: at a triplet division (1/4T, 1/8T, 1/16T, 1/32T). Locked to FL's clock while playing, the first note too: a press within a short grace window after a grid line (1/8 of the division, at most 30 ms) plays at once, any other press plays on the next grid line, and a quick tap still plays one note there. While on, turning the master encoder changes the division within the mode (clockwise faster); switching modes keeps the division (1/16 ↔ 1/16T). FL's hint bar shows the mode and division. Independent of FL's grid snap. Pads in Shift, New or Color mode are functions, and aren't held back or repeated. Shift: tap tempo (both controller types) | lit in On and Triplets; needs the MK2 bridge running, and Send master sync for repeats locked to the song |
 | Master | Encoder     |               | Encoder | turn: navigate the focused window (up/down, or left/right in the mixer) or an open menu; press: enter (browser, menus), open menu (mixer, playlist, piano roll), open the selected channel's item (right-click) menu (channel rack); a press acts on release, and not at all if the encoder turned while held. Push and turn: select a range of channels (channel rack) or mixer tracks (mixer), starting at the selected channel or current track | While Note Repeat is on, turning only changes its rate. Otherwise Volume / Swing / Tempo overrides take priority for turning, but push and turn in the channel rack or mixer always selects. Needs Encoder Push in Gate mode in the template (reload the updated .ncm2 in Controller Editor) |
 | Groups | A -> H      |               | Button  | select pad group: the pads play 16 notes from group × 16 (A 0–15, B 16–31 … H 112–127; middle C is Group D pad 13). While the selected channel is FPC: Group E plays bank A and Group F bank B, in FPC's pad colours; empty pads and the other groups are dark and silent; selecting an FPC jumps to Group E | lit in the selected channel's colour, brightest when selected; starts on Group D; only E and F lit while FPC is selected |
 | Transport | Restart     | Loop          | Button  | stop, jump to the start and play; shift: toggle FL's loop recording | lit in shift mode |
@@ -228,14 +254,19 @@ These are all of the controls present on the hardware with their location, label
 - pads light up on midi out 
 - encoder controls active screen + overrides
 
-### Shift and New Modes
+### Shift, New and Color Modes
 
-F8 toggles shift mode and F7 toggles new mode. Only one of them is on at a time: turning one on turns the other off. The mode's button stays lit while it is on.
+F8 toggles shift mode, F7 toggles new mode and F12 toggles color mode. Only one of them is on at a time: turning one on turns the others off. The mode's button stays lit while it is on.
 
 - **Shift mode** gives controls their "(shift mode)" function above, such as Browse (plugin picker), Play (metro), Rec (count-in), All (save), Note Repeat (tap tempo), Restart (loop recording), Select (the Piano Roll) and the pads (undo, redo, quantize, clear, copy, paste, …). It stays on until F8 is pressed again. In shift mode the pads never play notes.
 - **New mode** gives controls their "(new mode)" function: Browse opens FL's Add menu to add a channel, Pattern starts a new pattern, and All saves a new version of the project. New mode is one-shot: using a new-mode function turns it off. Controls without a new-mode function keep their normal function, and new mode stays on.
+- **Color mode** turns the pads into a palette of 16 colours: 16 hues round the colour wheel, pad 1 red onwards.
+  - **Picking:** pressing a pad gives that colour to every selected Channel Rack channel (all of a push-and-turn selection), and the hint says "Channel colour: 9". With no channel selected, the hint says so.
+  - **Current colour:** the pad matching the selected channel's current colour is brightest.
+  - **Latched:** like shift, it stays on until F12 is pressed again. The pads never play notes in it.
+  - **Pitfall:** F12 is on the MK2's second button page, above knob page 2 (the Macro knobs). Switch pages with the chevron buttons; the script can't switch them for you, and F12's light only shows on that page.
 
-While either mode is on, only its button and the controls with a *working* function in that mode are lit; functions that aren't written yet (or can't be done from an FL script) stay unlit. In shift mode the pads light in colours by function: undo/redo/compare orange, copy/paste cyan, quantize green, nudge (tempo) blue, clear red, cut yellow, transpose (semitone/octave) purple. Every other button goes dim, and the pads and Group buttons without a function go dark. The usual state lights (the focused window, Play/Rec) come back when the mode is turned off. Entering either mode also turns off any active encoder override.
+While any of these modes is on, only its button and the controls with a *working* function in that mode are lit; functions that aren't written yet (or can't be done from an FL script) stay unlit. In shift mode the pads light in colours by function: undo/redo/compare orange, copy/paste cyan, quantize green, nudge (tempo) blue, clear red, cut yellow, transpose (semitone/octave) purple. Every other button goes dim, and the pads and Group buttons without a function go dark. The usual state lights (the focused window, Play/Rec) come back when the mode is turned off. Entering either mode also turns off any active encoder override.
 
 ## Akai Fire
 

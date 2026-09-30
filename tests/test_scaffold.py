@@ -27,12 +27,12 @@ import midi  # noqa: E402
 
 import device_FLC_MaschineMK2_Hardware as script  # noqa: E402
 import device_FLC_MaschineMK2_Bridge as bridge_script  # noqa: E402
-from flc_maschine import bindings, bridge_link, controls, diagnostics, feedback, log, notes  # noqa: E402
-from flc_maschine.state import NEW, SHIFT  # noqa: E402
+from flc_maschine import bindings, bridge_link, controls, diagnostics, feedback, log, macros, notes  # noqa: E402
+from flc_maschine.state import COLOR, NEW, SHIFT  # noqa: E402
 from flc_maschine import controller as controller_module  # noqa: E402
 from flc_maschine.controller import MaschineMk2  # noqa: E402
 from flc_maschine.rendering import colors, renderer  # noqa: E402
-from flc_maschine.handlers import note_repeat, pads, transport_controls, ui_commands  # noqa: E402
+from flc_maschine.handlers import channel_colors, channel_knobs, macro_knobs, note_repeat, pads, transport_controls, ui_commands  # noqa: E402
 from flc_maschine.rendering.fl_state import FlSnapshot  # noqa: E402
 
 
@@ -85,6 +85,11 @@ class ScriptTestCase(unittest.TestCase):
         channels.colors = {0: 0xFF0000}
         plugins.names = {}
         plugins.pads = {}
+        plugins.effects = {}
+        plugins.params = {}
+        plugins.set_calls = []
+        mixer.active_effect = None
+        channels.types = {}
         log.DEBUG_FPC_COLORS = False
         ui.focused = None
         ui.snap_mode = midi.Snap_None
@@ -337,8 +342,6 @@ class ScaffoldTest(ScriptTestCase):
                 self.assertEqual(transport.calls, [("globalTransport", midi.FPT_Enter, 1)])
                 self.assertEqual(channels.shown_forms, [])
 
-    def test_unbound_knob_passes_through(self):
-        self.assertFalse(self.send(cc(controls.BY_ID["E9"].number, 1)).handled)  # knob page 2
 
     def test_unmapped_message_is_swallowed(self):
         self.assertTrue(self.send(cc(0)).handled)  # unmapped: logged, not passed to FL
@@ -531,8 +534,9 @@ class EncoderDragSelectTest(ScriptTestCase):
 BRIDGE_CC = midi.MIDI_CONTROLCHANGE + bridge_link.CHANNEL  # control changes on channel 16
 
 
-# Everything the script tells the bridge: repeat off, rate 1/16 (6 clocks), 120.0 BPM, stopped.
-FULL_STATE = [(1, 0), (2, 0), (34, 6), (3, 9), (35, 48), (4, 0)]
+# Everything the script tells the bridge: repeat off, rate 1/16 (6 clocks), 120.0 BPM, stopped,
+# pads playing notes.
+FULL_STATE = [(1, 0), (2, 0), (34, 6), (3, 9), (35, 48), (4, 0), (5, 127)]
 
 
 def bridge_ccs():
@@ -672,6 +676,14 @@ class BridgeModeTest(ScriptTestCase):
         device.reset()
         self.refresh()
         self.assertEqual(bridge_ccs(), [])
+
+    def test_modes_tell_the_bridge_the_pads_are_not_notes(self):
+        for button in ("F8", "F7", "F12"):
+            with self.subTest(button=button):
+                self.send(cc(controls.BY_ID[button].number))
+                self.assertEqual(bridge_ccs(), [(5, 0)])
+                self.send(cc(controls.BY_ID[button].number, 0))
+                self.assertEqual(bridge_ccs(), [(5, 127)])
 
     def test_play_state_is_sent(self):
         transport.playing = True
@@ -889,9 +901,235 @@ class ChannelKnobsTest(ScriptTestCase):
         self.turn("E1", +1)
         self.assertEqual(len(general.rec_events), 1)
 
-    def test_page_two_knobs_still_pass_through(self):
-        self.assertFalse(self.turn("E9", +1).handled)
+    def test_page_two_knobs_are_macros_not_channel_settings(self):
+        self.assertTrue(self.turn("E9", +1).handled)
         self.assertEqual(general.rec_events, [])
+
+
+class MacroMappingsTest(unittest.TestCase):
+    def test_mappings_are_well_formed(self):
+        for name, mapping in list(macros.MACROS.items()) + list(macros.CHANNEL_MACROS.items()):
+            with self.subTest(plugin=name):
+                self.assertLessEqual(len(mapping), 8)
+        for name, mapping in macros.MACROS.items():
+            with self.subTest(plugin=name):
+                entries = [entry.strip().lower() if isinstance(entry, str) else entry
+                           for entry in mapping if entry is not None]
+                self.assertTrue(all(isinstance(entry, (str, int)) for entry in entries))
+                self.assertEqual(len(entries), len(set(entries)), "a parameter mapped twice")
+
+
+class MacroKnobsTest(ScriptTestCase):
+    """E9-E16: macros for the focused plugin, from mappings in macros.py (replaced here by test ones)."""
+
+    def setUp(self):
+        super().setUp()
+        self._macros, self._channel_macros = dict(macros.MACROS), dict(macros.CHANNEL_MACROS)
+        macros.MACROS.clear()
+        macros.MACROS.update({
+            "Synth": [" CUTOFF ", "Resonance", None, "Wave", "Missing"],
+            "Reverb": ["Size"],
+            "Flexible": [2, 7],
+            "Empty": [],
+        })
+        macros.CHANNEL_MACROS.clear()
+        macros.CHANNEL_MACROS.update({"Sampler": [midi.REC_Chan_Pitch]})
+        channels.selected = 1
+        plugins.names[1] = "Synth"
+        plugins.params[(1, -1)] = [["Cutoff", 0.5, None], ["Resonance", 0.25, None], ["Wave", 0.0, 4]]
+
+    def tearDown(self):
+        macros.MACROS.clear()
+        macros.MACROS.update(self._macros)
+        macros.CHANNEL_MACROS.clear()
+        macros.CHANNEL_MACROS.update(self._channel_macros)
+        super().tearDown()
+
+    def turn(self, knob, delta):
+        return self.send(cc(controls.BY_ID[knob].number, delta & 0x7F))
+
+    def value(self, index, slot, param):
+        return plugins.params[(index, slot)][param][1]
+
+    def test_knobs_step_their_named_parameters(self):
+        self.assertTrue(self.turn("E9", +2).handled)
+        self.assertAlmostEqual(self.value(1, -1, 0), 0.5 + 2 * macro_knobs.MACRO_STEP)  # " CUTOFF " matched
+        self.assertEqual(ui.hints[-1], "Cutoff: 52%")
+        self.turn("E10", -1)
+        self.assertAlmostEqual(self.value(1, -1, 1), 0.25 - macro_knobs.MACRO_STEP)
+        self.assertTrue(all(call[4] == midi.PIM_None for call in plugins.set_calls))
+
+    def test_the_first_write_rewrites_the_current_value(self):
+        self.turn("E9", +1)
+        self.assertEqual(plugins.set_calls[0], (0.5, 0, 1, -1, midi.PIM_None))
+        count = len(plugins.set_calls)
+        self.turn("E9", +1)
+        self.assertEqual(len(plugins.set_calls), count + 1)  # only once
+
+    def test_a_focused_mixer_effect_comes_first(self):
+        plugins.effects[(3, 2)] = "Reverb"
+        plugins.params[(3, 2)] = [["Size", 0.5, None]]
+        mixer.active_effect = (3, 2)
+        self.turn("E9", +1)
+        self.assertGreater(self.value(3, 2, 0), 0.5)
+        self.assertEqual(self.value(1, -1, 0), 0.5)  # the channel's plugin untouched
+
+    def test_a_stepped_parameter_moves_once_the_steps_add_up(self):
+        # Wave has 4 steps (0, 0.25, ...): at 1/128 per knob step it rounds up to 0.25 at the 17th.
+        for _ in range(15):
+            self.turn("E12", +1)
+        self.assertEqual(self.value(1, -1, 2), 0.0)
+        for _ in range(2):
+            self.turn("E12", +1)
+        self.assertEqual(self.value(1, -1, 2), 0.25)
+
+    def test_a_value_changed_elsewhere_restarts_the_knob(self):
+        self.turn("E9", +1)
+        plugins.params[(1, -1)][0][1] = 0.9  # moved with the mouse
+        self.turn("E9", +1)
+        self.assertAlmostEqual(self.value(1, -1, 0), 0.9 + macro_knobs.MACRO_STEP)
+
+    def test_values_are_clamped(self):
+        plugins.params[(1, -1)][0][1] = 0.995
+        self.turn("E9", +5)
+        self.assertEqual(self.value(1, -1, 0), 1.0)
+
+    def test_parameters_can_be_mapped_by_number(self):
+        plugins.names[1] = "Flexible"
+        plugins.params[(1, -1)] = [["Not Used", 0.1, None], ["Not Used", 0.2, None], ["Macro", 0.5, None]]
+        self.turn("E9", +1)
+        self.assertGreater(self.value(1, -1, 2), 0.5)
+        self.assertEqual(ui.hints[-1], "Macro: 51%")  # FL's name for the parameter
+        self.turn("E10", +1)  # parameter 7 doesn't exist
+        self.assertEqual(ui.hints[-1], "Macro 2: no parameter 7 on Flexible")
+
+    def test_unused_and_missing_knobs(self):
+        self.turn("E11", +1)
+        self.assertEqual(ui.hints[-1], "Macro 3: not used on Synth")
+        self.turn("E13", +1)
+        self.assertEqual(ui.hints[-1], "Macro 5: no parameter 'Missing' on Synth")
+        self.turn("E13", +1)
+        self.assertEqual(self.log.getvalue().count("no parameter 'Missing'"), 1)  # logged once
+        self.turn("E16", +1)  # beyond the mapping
+        self.assertEqual(ui.hints[-1], "Macro 8: not used on Synth")
+
+    def test_an_unmapped_plugin_logs_its_parameters_once(self):
+        plugins.names[1] = "Unknown VST"
+        plugins.params[(1, -1)] = [["Gain", 0.5, None], ["", 0.0, None], ["Drive", 0.1, None]]
+        self.turn("E9", +1)
+        self.assertEqual(ui.hints[-1], "No macros for Unknown VST")
+        output = self.log.getvalue()
+        self.assertIn("0: Gain", output)
+        self.assertIn("2: Drive", output)
+        self.assertNotIn(" 1: ", output)  # empty names skipped
+        self.turn("E10", +1)
+        self.assertEqual(self.log.getvalue().count("No macros for Unknown VST yet"), 1)
+        self.assertEqual(plugins.set_calls, [])
+
+    def test_an_empty_mapping_counts_as_unmapped(self):
+        plugins.names[1] = "Empty"
+        self.turn("E9", +1)
+        self.assertEqual(ui.hints[-1], "No macros for Empty")
+
+    def test_sampler_channels_use_channel_macros(self):
+        del plugins.names[1]
+        channels.types[1] = midi.CT_Sampler
+        self.turn("E9", +2)
+        event_id = channels.getRecEventId(1) + midi.REC_Chan_Pitch
+        self.assertEqual(general.rec_events, [(event_id, 2, channel_knobs.SET_FLAGS)])
+        self.turn("E10", +1)
+        self.assertEqual(ui.hints[-1], "Macro 2: not used on Sampler")
+        macros.CHANNEL_MACROS["Sampler"] = []
+        self.turn("E9", +1)
+        self.assertEqual(ui.hints[-1], "No macros for Sampler")
+
+    def test_no_plugin_to_act_on(self):
+        channels.selected = -1
+        self.turn("E9", +1)
+        self.assertEqual(ui.hints[-1], "No plugin for macros")
+
+    def test_the_same_in_shift_mode(self):
+        self.controller.state.mode = SHIFT
+        self.turn("E9", +1)
+        self.assertGreater(self.value(1, -1, 0), 0.5)
+
+
+class ColorModeTest(ScriptTestCase):
+    """F12: Color mode, where the pads colour the selected channel(s)."""
+
+    def press(self, control_id, value=127):
+        return self.send(cc(controls.BY_ID[control_id].number, value))
+
+    def led(self, control_id):
+        return self.controller.leds._sent[control_id]
+
+    def palette_hsb(self, i, brightness):
+        return colors.with_brightness(colors.rgb_to_hsb(channel_colors.PALETTE[i]), brightness)
+
+    def test_f12_toggles_color_mode_and_its_led(self):
+        self.press("F12")
+        self.assertEqual(self.controller.state.mode, COLOR)
+        self.assertTrue(self.led("F12"))
+        self.press("F12", 0)
+        self.assertIsNone(self.controller.state.mode)
+        self.assertFalse(self.led("F12"))
+        self.assertNotIn("unimplemented: F12", self.log.getvalue())
+
+    def test_color_shift_and_new_replace_each_other(self):
+        self.press("F12")
+        self.press("F8")
+        self.assertEqual(self.controller.state.mode, SHIFT)
+        self.assertFalse(self.led("F12"))
+        self.press("F12", 0)
+        self.assertEqual(self.controller.state.mode, COLOR)
+        self.press("F7")
+        self.assertEqual(self.controller.state.mode, NEW)
+
+    def test_entering_color_mode_clears_an_encoder_override(self):
+        self.press("VOLUME")
+        self.press("F12")
+        self.assertIsNone(self.controller.state.encoder_mode)
+
+    def test_pads_show_the_palette_with_the_current_colour_brightest(self):
+        channels.colors[0] = channel_colors.PALETTE[4]
+        self.press("F12")
+        for i, pad_id in enumerate(PAD_IDS):
+            brightness = renderer.LIT_BRIGHTNESS if i == 4 else renderer.PALETTE_DIM
+            self.assertEqual(self.led(pad_id), self.palette_hsb(i, brightness), pad_id)
+        for group_id in GROUP_IDS:
+            self.assertEqual(self.led(group_id), colors.OFF)
+
+    def test_a_pad_colours_every_selected_channel(self):
+        channels.selection = {1, 3}
+        self.press("F12")
+        event = self.send(note_on(controls.BY_ID["PAD_9"].number))
+        self.assertTrue(event.handled)
+        self.assertEqual(channels.colors.get(1), channel_colors.PALETTE[8])
+        self.assertEqual(channels.colors.get(3), channel_colors.PALETTE[8])
+        self.assertNotEqual(channels.colors.get(0), channel_colors.PALETTE[8])
+        self.assertEqual(ui.hints[-1], "Channel colour: 9")
+        self.assertEqual(self.controller.state.mode, COLOR)  # stays on
+
+    def test_no_channel_selected(self):
+        channels.selection = set()
+        self.press("F12")
+        self.send(note_on(controls.BY_ID["PAD_1"].number))
+        self.assertEqual(ui.hints[-1], "No channel selected")
+
+    def test_pads_play_no_notes_in_color_mode(self):
+        channels.selection = {0}
+        self.press("F12")
+        event = self.send(note_on(controls.BY_ID["PAD_1"].number))
+        self.assertEqual(event.data1, controls.BY_ID["PAD_1"].number)  # not translated to a note
+        self.assertTrue(event.handled)
+
+    def test_an_fpc_channel_shows_the_palette_too(self):
+        plugins.names[1] = "FPC"
+        plugins.pads[1] = [(36 + i, 0x0000FF, False) for i in range(32)]
+        channels.selected = 1
+        self.refresh()
+        self.press("F12")
+        self.assertEqual(self.led("PAD_1"), self.palette_hsb(0, renderer.PALETTE_DIM))
 
 
 class WindowButtonsTest(ScriptTestCase):

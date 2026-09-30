@@ -45,6 +45,7 @@ CC_REPEAT = 1  # 0 off, 127 on
 CC_RATE, CC_RATE_LSB = 2, 34  # repeat rate in MIDI clocks, applied on the LSB
 CC_TEMPO, CC_TEMPO_LSB = 3, 35  # tempo x 10, applied on the LSB
 CC_PLAYING = 4  # FL playing: 0 stopped, 127 playing
+CC_PADS_PLAY_NOTES = 5  # 0 while a script mode (Shift, New, Color) makes the pads functions
 CC_NO_CLOCK = 126  # bridge -> script: FL is playing but no MIDI clock arrives
 CC_HELLO = 127  # bridge -> script: the bridge started, send everything
 
@@ -174,6 +175,9 @@ class NoteRepeater:
         self.emit = emit
         self.on_no_clock = on_no_clock
         self.enabled = False
+        # False while the script's Shift, New or Color mode is on: the pads are functions then
+        # (undo, colours...), so they pass straight through, never held back or repeated.
+        self.pads_play_notes = True
         self.rate = 6  # MIDI clocks per repeat (a sixteenth note)
         self.bpm = 120.0
         self._rate_msb = 0
@@ -215,6 +219,11 @@ class NoteRepeater:
             if bpm > 0:
                 self.bpm = bpm
                 self.spc = self._tempo_spc()  # follow a tempo change at once
+        elif control == CC_PADS_PLAY_NOTES:
+            play_notes = value >= 64
+            if not play_notes:
+                self.stop_all()
+            self.pads_play_notes = play_notes
         elif control == CC_PLAYING:
             self.playing = value >= 64
             if not self.playing:
@@ -240,7 +249,7 @@ class NoteRepeater:
     def pad_on(self, channel, note, velocity, now):
         """A pad pressed. Returns whether to pass the press to FL now; False holds it back to the
         next grid line."""
-        if not self.enabled:
+        if not self.enabled or not self.pads_play_notes:
             return True
         key = (channel, note)
         if self.clocked(now) and self.locked:

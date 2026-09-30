@@ -8,11 +8,13 @@ every event, so a handler never has to touch the LEDs itself.
 BASE = "base"
 SHIFT = "shift"
 NEW = "new"
+COLOR = "color"
 
 
 class ControllerState:
     def __init__(self):
-        # Global mode: SHIFT (toggled by F8), NEW (toggled by F7) or None. Only one is on at a time;
+        # Global mode: SHIFT (toggled by F8), NEW (toggled by F7), COLOR (toggled by F12) or None.
+        # Only one is on at a time;
         # its binding layer takes priority over the base layer.
         self.mode = None
         # Control id -> the handler that received its press, so the release goes to the same
@@ -44,6 +46,12 @@ class ControllerState:
         # Note Repeat's division: an index into the current mode's note_repeat.RATES, changed by
         # the encoder while Note Repeat is on. Independent of FL's grid snap.
         self.note_repeat_rate = 2  # 1/16 or 1/16T (note_repeat.DEFAULT_RATE)
+        # Macros (E9-E16, handlers/macro_knobs.py): each parameter's running value and what FL made
+        # of it, keyed by (plugin index, slot, parameter); each plugin's parameter names, looked up
+        # once; and what has been logged this session (parameter lists, missing names).
+        self.macro_values = {}
+        self.macro_params = {}
+        self.macro_logged = set()
         # The FPC channel selected at the last render, or None. Selecting a different FPC jumps
         # the pads to Group E.
         self.fpc_channel = None

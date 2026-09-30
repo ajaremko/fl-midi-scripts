@@ -13,7 +13,8 @@ and append it to RULES. Later rules override earlier ones.
 import midi
 
 from .. import bindings, controls, notes
-from ..state import NEW, SHIFT
+from ..handlers.channel_colors import PALETTE
+from ..state import COLOR, NEW, SHIFT
 from . import colors
 
 # Brightness of the pads and the selected Group button. Full brightness keeps dark channel
@@ -21,6 +22,8 @@ from . import colors
 LIT_BRIGHTNESS = colors.MAX
 # Brightness of the Group buttons that are not selected.
 DIM_BRIGHTNESS = 24
+# Color mode: palette pads other than the selected channel's current colour.
+PALETTE_DIM = 70
 
 _PAD_IDS = [control.id for control in controls.PADS]
 
@@ -96,7 +99,7 @@ def _encoder_mode(state, fl, frame):
 
 
 # The button that toggles each global mode, lit while that mode is on.
-MODE_BUTTONS = {SHIFT: "F8", NEW: "F7"}
+MODE_BUTTONS = {SHIFT: "F8", NEW: "F7", COLOR: "F12"}
 
 
 # The colour of each highlighted RGB control in a mode, grouped by function. Controls not listed
@@ -121,15 +124,25 @@ MODE_COLORS = {
 }
 
 
+def _color_mode_pads(fl):
+    """Color mode: each pad in its palette colour, the selected channel's current one brightest."""
+    current = fl.channel_color
+    return {
+        pad_id: colors.with_brightness(colors.rgb_to_hsb(color), LIT_BRIGHTNESS if color == current else PALETTE_DIM)
+        for pad_id, color in zip(_PAD_IDS, PALETTE)
+    }
+
+
 def _mode_highlight(state, fl, frame):
-    """While Shift or New mode is on, light only its button and the controls with a function in it.
+    """While Shift, New or Color mode is on, light only its button and the controls with a function
+    in it. Color mode lights the pads in its palette (_color_mode_pads).
 
     Must stay the last rule: it replaces what the earlier rules showed until the mode turns off.
     """
     if not state.mode:
         return
     mode_controls = bindings.MODE_CONTROLS[state.mode]
-    mode_colors = MODE_COLORS.get(state.mode, {})
+    mode_colors = _color_mode_pads(fl) if state.mode == COLOR else MODE_COLORS.get(state.mode, {})
     lit_hsb = colors.with_brightness(_channel_hsb(fl), LIT_BRIGHTNESS)
     for control in controls.LED_CONTROLS:
         shown = control.id == MODE_BUTTONS[state.mode] or control.id in mode_controls

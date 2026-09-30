@@ -59,3 +59,10 @@ def getCurrentTempo(asInt=0):
 
 def getTrackName(index):
     return "Master" if index == 0 else "Insert %d" % index
+
+
+active_effect = None  # (track, slot) of the focused effect editor, or None
+
+
+def getActiveEffectIndex():
+    return active_effect
